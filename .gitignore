@@ -1,0 +1,64 @@
+# Unity generated
+[Ll]ibrary/
+[Tt]emp/
+[Oo]bj/
+[Bb]uild/
+[Bb]uilds/
+[Ll]ogs/
+[Uu]ser[Ss]ettings/
+
+# Visual Studio / Rider cache
+.idea/
+.vs/
+*.csproj
+*.unityproj
+*.sln
+*.slnx
+*.user
+*.userprefs
+*.userosscache
+*.suo
+*.pidb
+*.booproj
+
+# VS Code
+.vscode/
+
+# OS generated
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Plastic SCM
+.plastic/
+.plasticlog/
+plastic.workspaces
+*.plastic
+
+# JetBrains Rider
+.idea/
+
+# Crashlytics
+Crashlytics-build-id.txt
+
+# Memory Captures
+MemoryCaptures/
+
+# Asset meta data should only be ignored when the corresponding asset is also ignored
+!/[Aa]ssets/**/*.meta
+!/[Pp]ackages/**/*.meta
+!/[Pp]rojectSettings/**/*.meta
+
+# Exclude screenshots from version control (large binary files)
+Assets/Screenshots/
+
+# Package Manager auto-generated
+Packages/
+PackageCache/
+
+# Console logs
+*.log

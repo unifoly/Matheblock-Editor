@@ -72,8 +72,8 @@ namespace HexMap
                 Debug.Log("[SettingsPageBuilder] 已修正 Canvas 额外着色器通道。");
             }
 
-            // 修复左侧 Menu 的 ScrollRect 结构（确保可滚动、可裁剪）
-            EnsureMenuScrollRect(canvas);
+            // 修复整体布局：Menu 左侧固定宽度，Settings 填满剩余区域
+            FixLayout(canvas, settings);
 
             ClearOldPages(settings.transform);
 
@@ -104,7 +104,6 @@ namespace HexMap
             backField.SetValue(sceneCtrl, FindButton("Btn_BackToEditor"));
 
             ConfigureMenuButtons();
-            EnsurePanelBackground(canvas);
 
             EditorSceneManager.MarkSceneDirty(scene);
             EditorSceneManager.SaveScene(scene);
@@ -691,121 +690,108 @@ namespace HexMap
             }
         }
 
-        private static void EnsurePanelBackground(GameObject canvas)
+        /// <summary>
+        /// 统一修复 Setting 场景布局：
+        /// - Menu 固定左侧宽度 (280)，垂直撑满，带 ScrollRect
+        /// - Settings 右侧填满剩余区域
+        /// - Viewport 有 Mask 裁剪，Content 顶部对齐可滚动
+        /// </summary>
+        private static void FixLayout(GameObject canvas, GameObject settingsPanel)
         {
             var menu = FindChildByName(canvas.transform, "Menu");
+            const float k_menuWidth = 300f;
+
+            // --- Menu 锚点：固定左侧，垂直撑满 ---
             if (menu != null)
             {
+                var menuRt = menu.GetComponent<RectTransform>();
+                menuRt.anchorMin = new Vector2(0, 0);
+                menuRt.anchorMax = new Vector2(0, 1);
+                menuRt.pivot = new Vector2(0, 0.5f);
+                menuRt.offsetMin = new Vector2(0, 0);
+                menuRt.offsetMax = new Vector2(k_menuWidth, 0);
+
+                // 背景色
                 var img = menu.GetComponent<Image>();
-                if (img != null && img.color.a < 1f)
+                if (img != null) img.color = s_panelBg;
+
+                // --- Menu 内部 ScrollRect 结构 ---
+                var sr = menu.GetComponent<ScrollRect>();
+
+                // 查找/确保 Viewport
+                var vpGo = FindChildByName(menu.transform, "Viewport");
+                RectTransform vpRt = vpGo != null ? vpGo.GetComponent<RectTransform>() : null;
+                if (vpRt == null)
                 {
-                    img.color = s_panelBg;
+                    var vp = CreateUIObject("Viewport", menu.transform);
+                    vpRt = vp.GetComponent<RectTransform>();
                 }
+                vpRt.anchorMin = Vector2.zero;
+                vpRt.anchorMax = Vector2.one;
+                vpRt.offsetMin = Vector2.zero;
+                vpRt.offsetMax = Vector2.zero;
+
+                // Viewport: Image + Mask（裁剪溢出）
+                var vpImg = vpRt.GetComponent<Image>();
+                if (vpImg == null) vpImg = vpRt.gameObject.AddComponent<Image>();
+                vpImg.color = new Color(1f, 1f, 1f, 0.01f);
+
+                var vpMask = vpRt.GetComponent<Mask>();
+                if (vpMask == null) vpRt.gameObject.AddComponent<Mask>();
+
+                // 查找/确保 Content
+                var ctGo = FindChildByName(vpRt, "Content");
+                RectTransform ctRt = ctGo != null ? ctGo.GetComponent<RectTransform>() : null;
+                if (ctRt == null)
+                {
+                    var ct = CreateUIObject("Content", vpRt);
+                    ctRt = ct.GetComponent<RectTransform>();
+                    // 确保 Content 有 VerticalLayoutGroup
+                    var vlg = ct.AddComponent<VerticalLayoutGroup>();
+                    vlg.spacing = 0;
+                    vlg.padding = new RectOffset(0, 0, 12, 12);
+                    vlg.childControlWidth = true;
+                    vlg.childControlHeight = true;
+                    vlg.childForceExpandWidth = true;
+                    vlg.childForceExpandHeight = false;
+                    vlg.childAlignment = TextAnchor.UpperCenter;
+                    var fitter = ct.AddComponent<ContentSizeFitter>();
+                    fitter.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
+                }
+
+                // Content 锚点：顶部对齐，宽度撑满
+                ctRt.anchorMin = new Vector2(0, 1);
+                ctRt.anchorMax = Vector2.one;
+                ctRt.pivot = new Vector2(0.5f, 1);
+                ctRt.offsetMin = Vector2.zero;
+                ctRt.offsetMax = Vector2.zero;
+
+                // ScrollRect 组件
+                if (sr == null) sr = menu.AddComponent<ScrollRect>();
+                sr.horizontal = false;
+                sr.vertical = true;
+                sr.scrollSensitivity = 20f;
+                sr.viewport = vpRt;
+                sr.content = ctRt;
+
+                Debug.Log("[SettingsPageBuilder] Menu 布局已修复（左侧固定 300px + ScrollRect）。");
             }
 
-            var settingsPanel = FindChildByName(canvas.transform, "Settings");
+            // --- Settings 面板：填满右侧剩余区域 ---
             if (settingsPanel != null)
             {
+                var stRt = settingsPanel.GetComponent<RectTransform>();
+                stRt.anchorMin = Vector2.zero;
+                stRt.anchorMax = Vector2.one;
+                stRt.pivot = new Vector2(0.5f, 0.5f);
+                stRt.offsetMin = new Vector2(k_menuWidth, 0);
+                stRt.offsetMax = Vector2.zero;
+
                 var img = settingsPanel.GetComponent<Image>();
-                if (img != null && img.color.a < 1f)
-                {
-                    img.color = s_panelBg;
-                }
+                if (img != null) img.color = s_panelBg;
+
+                Debug.Log("[SettingsPageBuilder] Settings 布局已修复（填满右侧）。");
             }
-        }
-
-        /// <summary>
-        /// 确保 Menu -> Viewport -> Content -> [按钮们] 结构正确：
-        /// Menu 上有 ScrollRect，Viewport 上有 Image+Mask，Content 锚点正确可滚动。
-        /// </summary>
-        private static void EnsureMenuScrollRect(GameObject canvas)
-        {
-            var menu = FindChildByName(canvas.transform, "Menu");
-            if (menu == null)
-            {
-                Debug.LogWarning("[SettingsPageBuilder] 未找到 Menu 对象，跳过 ScrollRect 修复。");
-                return;
-            }
-
-            var menuRect = menu.GetComponent<RectTransform>();
-            var sr = menu.GetComponent<ScrollRect>();
-
-            // 查找 Viewport（Menu 的直接子对象）
-            RectTransform viewportRect = null;
-            for (int i = 0; i < menu.transform.childCount; i++)
-            {
-                var child = menu.transform.GetChild(i);
-                if (child.name == "Viewport" || child.name == "viewport")
-                {
-                    viewportRect = child as RectTransform;
-                    break;
-                }
-            }
-
-            // 如果没有 Viewport，说明结构不完整，无法自动修复
-            if (viewportRect == null)
-            {
-                Debug.LogWarning("[SettingsPageBuilder] Menu 下没有 Viewport，跳过 ScrollRect 修复。");
-                return;
-            }
-
-            // 确保 Viewport 有 Image + Mask（裁剪超出区域的内容）
-            var vpImg = viewportRect.GetComponent<Image>();
-            if (vpImg == null)
-            {
-                vpImg = viewportRect.gameObject.AddComponent<Image>();
-                vpImg.color = new Color(1f, 1f, 1f, 0.01f); // 透明但仍可裁剪
-            }
-
-            var vpMask = viewportRect.GetComponent<Mask>();
-            if (vpMask == null)
-            {
-                viewportRect.gameObject.AddComponent<Mask>();
-            }
-
-            // 确保 Viewport 填满 Menu
-            viewportRect.anchorMin = Vector2.zero;
-            viewportRect.anchorMax = Vector2.one;
-            viewportRect.offsetMin = Vector2.zero;
-            viewportRect.offsetMax = Vector2.zero;
-
-            // 查找 Content（Viewport 的直接子对象）
-            RectTransform contentRect = null;
-            for (int i = 0; i < viewportRect.childCount; i++)
-            {
-                var child = viewportRect.GetChild(i);
-                if (child.name == "Content" || child.name == "content")
-                {
-                    contentRect = child as RectTransform;
-                    break;
-                }
-            }
-
-            // 创建或配置 ScrollRect
-            if (sr == null)
-            {
-                sr = menu.AddComponent<ScrollRect>();
-                Debug.Log("[SettingsPageBuilder] 已为 Menu 添加 ScrollRect 组件。");
-            }
-
-            sr.horizontal = false;
-            sr.vertical = true;
-            sr.scrollSensitivity = 20f;
-            sr.viewport = viewportRect;
-
-            if (contentRect != null)
-            {
-                // Content 锚点：顶部对齐，宽度撑满
-                contentRect.anchorMin = new Vector2(0, 1);
-                contentRect.anchorMax = Vector2.one;
-                contentRect.pivot = new Vector2(0.5f, 1f);
-                contentRect.offsetMin = Vector2.zero;
-                contentRect.offsetMax = Vector2.zero;
-
-                sr.content = contentRect;
-            }
-
-            Debug.Log("[SettingsPageBuilder] Menu ScrollRect 结构已修复。");
         }
 
         private static GameObject FindChildByName(Transform parent, string name)

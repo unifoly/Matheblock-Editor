@@ -4,6 +4,8 @@ using UnityEngine.EventSystems;
 public class GridScrollHandler : MonoBehaviour, IScrollHandler, IEventSystemHandler
 {
     private GridManager m_gridManager;
+    private EasingAreaManager m_easingAreaManager;
+    private RectTransform m_playScreenRect;
 
     // Ctrl 键状态缓存：EventSystem 回调里 Input.GetKey 有时返回滞后值，
     // 每帧在 Update 中先缓存，OnScroll 同时读缓存和实时值进行兜底。
@@ -12,6 +14,8 @@ public class GridScrollHandler : MonoBehaviour, IScrollHandler, IEventSystemHand
     private void Start()
     {
         FindGridManager();
+        m_easingAreaManager = GetComponent<EasingAreaManager>();
+        m_playScreenRect = GetComponent<RectTransform>();
     }
 
     private void FindGridManager()
@@ -74,6 +78,14 @@ public class GridScrollHandler : MonoBehaviour, IScrollHandler, IEventSystemHand
                           || Input.GetKey(KeyCode.LeftControl)
                           || Input.GetKey(KeyCode.RightControl);
 
+        // 检测鼠标是否在右半缓动区：若是则将滚轮转为水平滚动
+        if (!isCtrlHeld && m_easingAreaManager != null && m_playScreenRect != null
+            && IsMouseInEasingArea(eventData.position))
+        {
+            m_easingAreaManager.ScrollHorizontal(eventData.scrollDelta.y * 40f);
+            return;
+        }
+
         if (isCtrlHeld)
         {
             // Ctrl+滚轮：缩放线间距（实质不变，仅视觉密度）
@@ -83,5 +95,20 @@ public class GridScrollHandler : MonoBehaviour, IScrollHandler, IEventSystemHand
         {
             m_gridManager.HandleScroll(-eventData.scrollDelta.y);
         }
+    }
+
+    /// <summary>
+    /// 判断鼠标是否在右半缓动区内
+    /// </summary>
+    private bool IsMouseInEasingArea(Vector2 screenPosition)
+    {
+        if (m_gridManager == null || m_playScreenRect == null) return false;
+
+        Vector2 localPoint;
+        RectTransformUtility.ScreenPointToLocalPointInRectangle(
+            m_playScreenRect, screenPosition, null, out localPoint);
+
+        return !m_gridManager.IsInNoteArea(localPoint.x)
+               && localPoint.x <= m_playScreenRect.rect.width * 0.5f;
     }
 }

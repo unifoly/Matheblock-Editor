@@ -1857,6 +1857,7 @@ GameObject:
   - component: {fileID: 346273060}
   - component: {fileID: 346273059}
   - component: {fileID: 346273062}
+  - component: {fileID: 346273063}
   m_Layer: 5
   m_Name: BasicInfo
   m_TagString: Untagged
@@ -1981,6 +1982,18 @@ MonoBehaviour:
   m_EffectColor: {r: 1, g: 1, b: 1, a: 0.33333334}
   m_EffectDistance: {x: 10, y: 10}
   m_UseGraphicAlpha: 1
+--- !u!114 &346273063
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 346273057}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 1f9963656d5243847a5bd635eb059a57, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
 --- !u!1 &347559098
 GameObject:
   m_ObjectHideFlags: 0
@@ -4566,6 +4579,8 @@ GameObject:
   - component: {fileID: 981922031}
   - component: {fileID: 981922033}
   - component: {fileID: 981922032}
+  - component: {fileID: 981922035}
+  - component: {fileID: 981922034}
   m_Layer: 5
   m_Name: PlayScreen
   m_TagString: Untagged
@@ -4631,6 +4646,42 @@ CanvasRenderer:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 981922030}
   m_CullTransparentMesh: 1
+--- !u!114 &981922034
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 981922030}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 68a26d9b980adbf46aba15b92501350c, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  m_lineCount: 14
+  m_lineSpacing: 80
+  m_lineColor: {r: 0.5, g: 0.7, b: 1, a: 0.6}
+  m_backgroundColor: {r: 0.12, g: 0.12, b: 0.16, a: 0.5}
+  m_hLineColor: {r: 1, g: 1, b: 1, a: 0.15}
+  m_hLineCount: 8
+--- !u!114 &981922035
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 981922030}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 9c4217f1df791aa44bab6e874893b228, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  m_clickSprite: {fileID: 21300000, guid: f3bd3c1260c211a48807142ddef0be56, type: 3}
+  m_flickSprite: {fileID: 21300000, guid: d2a9fb7c225d09c458dfdb2170d09cbb, type: 3}
+  m_dragSprite: {fileID: 21300000, guid: 6bb631072e36e7a45bb79395af720a64, type: 3}
+  m_noteSize: 80
+  m_hoverColor: {r: 1, g: 1, b: 1, a: 0.3}
+  m_fallbackColor: {r: 0.8, g: 0.8, b: 0.8, a: 1}
 --- !u!114 &990000001
 MonoBehaviour:
   m_ObjectHideFlags: 0

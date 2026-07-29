@@ -10,12 +10,17 @@ public class GridManager : MonoBehaviour
     public float m_referenceBpm = 120f;
     public int m_defaultYLines = 10;
     public float m_pixelsPerSecond = 200f;
+    // 左半区域（Note 放置区）占视口宽度的比例，右侧用于缓动函数编辑
+    [Range(0.1f, 0.9f)]
+    public float m_noteAreaRatio = 0.5f;
     // 网格线：纯白色，在暗化背景上保持清晰可见
     public Color m_gridColor = new Color(1f, 1f, 1f, 0.7f);
     // 中心/边缘垂直线：纯白色
     public Color m_centerLineColor = new Color(1f, 1f, 1f, 0.7f);
     // 每个音节（整拍）对应的粗线条：金色
     public Color m_beatLineColor = new Color(1f, 0.843f, 0f, 0.7f);
+    // 左右区域分隔线：紫色，醒目区分 Note 区与缓动区
+    public Color m_dividerColor = new Color(0.6f, 0.2f, 0.8f, 0.9f);
 
     private RectTransform m_playScreenRect;
     private RectTransform m_gridContainerRect;
@@ -301,7 +306,7 @@ public class GridManager : MonoBehaviour
     }
 
     /// <summary>
-    /// 只清除垂直线（水平线由对象池管理，不销毁）
+    /// 只清除垂直线和分隔线（水平线由对象池管理，不销毁）
     /// </summary>
     private void ClearVerticalLines()
     {
@@ -310,7 +315,7 @@ public class GridManager : MonoBehaviour
         for (int i = m_gridContainerRect.childCount - 1; i >= 0; i--)
         {
             var child = m_gridContainerRect.GetChild(i);
-            if (child.name.StartsWith("VLine_"))
+            if (child.name.StartsWith("VLine_") || child.name == "DividerLine")
             {
                 DestroyImmediate(child.gameObject);
             }
@@ -321,7 +326,10 @@ public class GridManager : MonoBehaviour
     {
         if (m_playScreenRect == null || m_yLineCount < 2 || m_viewportWidth <= 0) return;
 
-        float spacing = m_viewportWidth / (m_yLineCount - 1);
+        // 垂直线（轨道线）仅分布在左半 Note 区，右半留给缓动函数区
+        float noteAreaWidth = m_viewportWidth * m_noteAreaRatio;
+        float spacing = noteAreaWidth / (m_yLineCount - 1);
+        // 左半区域从视口最左侧开始
         float startX = -m_viewportWidth / 2f;
 
         for (int i = 0; i < m_yLineCount; i++)
@@ -339,7 +347,35 @@ public class GridManager : MonoBehaviour
 
             Image image = lineObj.AddComponent<Image>();
             image.color = (i == 0 || i == m_yLineCount - 1) ? m_centerLineColor : m_gridColor;
+            // 网格线纯视觉用途，不拦截射线，避免阻挡 Note 放置的点击检测
+            image.raycastTarget = false;
         }
+
+        DrawDividerLine();
+    }
+
+    /// <summary>
+    /// 绘制左右区域分隔线（位于视口宽度 * m_noteAreaRatio 处）
+    /// </summary>
+    private void DrawDividerLine()
+    {
+        if (m_gridContainerRect == null) return;
+
+        GameObject dividerObj = new GameObject("DividerLine");
+        dividerObj.transform.SetParent(m_gridContainerRect);
+        dividerObj.transform.localScale = Vector3.one;
+
+        RectTransform rect = dividerObj.AddComponent<RectTransform>();
+        rect.anchorMin = new Vector2(0, 0);
+        rect.anchorMax = new Vector2(0, 1);
+        rect.pivot = new Vector2(0.5f, 0.5f);
+        rect.sizeDelta = new Vector2(4, 0);
+        // 分隔线位于左半区域右边缘（视口中心）
+        rect.localPosition = new Vector3(-m_viewportWidth / 2f + m_viewportWidth * m_noteAreaRatio, 0, 0);
+
+        Image image = dividerObj.AddComponent<Image>();
+        image.color = m_dividerColor;
+        image.raycastTarget = false;
     }
 
     /// <summary>
@@ -417,6 +453,8 @@ public class GridManager : MonoBehaviour
 
                 Image image = m_hLineImages[poolIndex - 1];
                 image.color = isWholeNote ? m_beatLineColor : m_gridColor;
+                // 水平线纯视觉用途，不拦截射线
+                image.raycastTarget = false;
 
                 // 追踪 BPM 变化
                 if (poolIndex == 1) firstBpm = bpm;
@@ -471,10 +509,11 @@ public class GridManager : MonoBehaviour
         rect.anchorMax = new Vector2(1, 0);
         rect.pivot = new Vector2(0.5f, 0.5f);
 
-        lineObj.AddComponent<Image>();
+        Image hImage = lineObj.AddComponent<Image>();
+        hImage.raycastTarget = false;
 
         m_hLinePool.Add(lineObj);
-        m_hLineImages.Add(lineObj.GetComponent<Image>());
+        m_hLineImages.Add(hImage);
         return lineObj;
     }
 
@@ -556,4 +595,89 @@ public class GridManager : MonoBehaviour
         m_scrollInitialized = false;
         CreateGrid();
     }
+
+    #region Note 放置区辅助接口
+
+    /// <summary>左半 Note 区宽度（像素）</summary>
+    public float NoteAreaWidth => m_viewportWidth * m_noteAreaRatio;
+
+    /// <summary>右半缓动区宽度（像素）</summary>
+    public float EasingAreaWidth => m_viewportWidth * (1f - m_noteAreaRatio);
+
+    /// <summary>右半缓动区左边缘在本地坐标系中的 X（视口中心为 0）</summary>
+    public float EasingAreaLocalX => -m_viewportWidth / 2f + m_viewportWidth * m_noteAreaRatio;
+
+    /// <summary>视口宽度（像素）</summary>
+    public float ViewportWidth => m_viewportWidth;
+
+    /// <summary>视口高度（像素）</summary>
+    public float ViewportHeight => m_viewportHeight;
+
+    /// <summary>缩放后的有效像素密度（像素/秒）</summary>
+    public float EffectivePPS => EffectivePixelsPerSecond;
+
+    /// <summary>当前轨道线数量</summary>
+    public int LaneCount => m_yLineCount;
+
+    /// <summary>当前节拍间隔因子（用于 Note 吸附计算）</summary>
+    public float IntervalFactor => m_cachedIntervalFactor;
+
+    /// <summary>GridContainer 的 RectTransform，供外部挂载 Note 等子物体</summary>
+    public RectTransform GridContainerRect => m_gridContainerRect;
+
+    /// <summary>
+    /// 将轨道索引转换为本地坐标 X（相对 GridContainer 中心）
+    /// </summary>
+    public float LaneToLocalX(int laneIndex)
+    {
+        if (m_yLineCount < 2) return 0f;
+        float noteAreaWidth = m_viewportWidth * m_noteAreaRatio;
+        float spacing = noteAreaWidth / (m_yLineCount - 1);
+        float startX = -m_viewportWidth / 2f;
+        return startX + laneIndex * spacing;
+    }
+
+    /// <summary>
+    /// 将本地坐标 X 转换为最近的轨道索引（0 ~ LaneCount-1）
+    /// </summary>
+    public int LocalXToLane(float localX)
+    {
+        if (m_yLineCount < 2) return 0;
+        float noteAreaWidth = m_viewportWidth * m_noteAreaRatio;
+        float spacing = noteAreaWidth / (m_yLineCount - 1);
+        float startX = -m_viewportWidth / 2f;
+        float relative = (localX - startX) / spacing;
+        return Mathf.Clamp(Mathf.RoundToInt(relative), 0, m_yLineCount - 1);
+    }
+
+    /// <summary>
+    /// 将时间（秒）转换为本地坐标 Y（相对 GridContainer 中心）。
+    /// 与 DrawHorizontalLines 使用相同的映射：基准线在视口 3/4 处。
+    /// </summary>
+    public float TimeToLocalY(float time)
+    {
+        float currentTime = m_scrollOffset / EffectivePixelsPerSecond;
+        return (time - currentTime) * EffectivePixelsPerSecond - m_viewportHeight * 0.25f;
+    }
+
+    /// <summary>
+    /// 将本地坐标 Y 转换为时间（秒）
+    /// </summary>
+    public float LocalYToTime(float localY)
+    {
+        float currentTime = m_scrollOffset / EffectivePixelsPerSecond;
+        return (localY + m_viewportHeight * 0.25f) / EffectivePixelsPerSecond + currentTime;
+    }
+
+    /// <summary>
+    /// 判断本地坐标点是否落在左半 Note 区内
+    /// </summary>
+    public bool IsInNoteArea(float localX)
+    {
+        float leftEdge = -m_viewportWidth / 2f;
+        float dividerX = leftEdge + m_viewportWidth * m_noteAreaRatio;
+        return localX >= leftEdge && localX <= dividerX;
+    }
+
+    #endregion
 }

@@ -36,6 +36,10 @@ public class EditorInit : MonoBehaviour
         m_infoDir = chartSelect != null ? chartSelect.SelectMusic : string.Empty;
         ChartPath = m_infoDir;
 
+        // 初始化撤回/重做系统（清空上一谱面的历史，绑定场景按钮）
+        UndoRedoManager.Clear();
+        UndoRedoManager.Initialize();
+
         // 将 chart.json 复制为 chart.tmp，此后所有编辑操作基于 .tmp，Save 时才覆写回 .json
         CopyChartToTemp();
 
@@ -66,6 +70,18 @@ public class EditorInit : MonoBehaviour
         if (playScreen.GetComponent<GridScrollHandler>() == null)
         {
             playScreen.AddComponent<GridScrollHandler>();
+        }
+
+        // 左半 Note 放置管理器：Q/E/R 切换 Click/Flick/Drag
+        if (playScreen.GetComponent<NotePlacementManager>() == null)
+        {
+            playScreen.AddComponent<NotePlacementManager>();
+        }
+
+        // 右半缓动函数区管理器：14 条竖线 + 水平滚动
+        if (playScreen.GetComponent<EasingAreaManager>() == null)
+        {
+            playScreen.AddComponent<EasingAreaManager>();
         }
     }
 

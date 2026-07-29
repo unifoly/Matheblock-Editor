@@ -23,9 +23,15 @@ public class BpmManagerUI : MonoBehaviour
     private GameObject m_bpmPanel;
     private List<BpmNodeEntry> m_nodeEntries;
     private Transform m_contentContainer;
+
+    // 中文字体（动态 TMP 字体，从 Resources/Fonts/black.ttf 加载）
+    private TMP_FontAsset m_chineseFont;
     private RectTransform m_contentRect;
     private Button m_saveButton;
     private Slider m_musicTimeSlider;
+
+    // 撤回/重做：编辑前的 BPM 节点快照（onSelect 时捕获）
+    private List<(float time, float bpm)> m_bpmBeforeSnapshot;
 
     private class BpmNodeEntry
     {
@@ -141,6 +147,8 @@ public class BpmManagerUI : MonoBehaviour
     {
         public ChartJsonInfo info;
         public List<BpmJsonNode> bpmNodes;
+        // 保留 notes 字段，避免 BPM 保存时丢失 NotePlacementManager 写入的数据
+        public List<NoteJsonNode> notes;
     }
 
     private void Awake()
@@ -483,6 +491,8 @@ public class BpmManagerUI : MonoBehaviour
     {
         Debug.Log($"[BpmManagerUI] 添加节点按钮被点击");
 
+        var beforeSnapshot = CaptureBpmNodes();
+
         var currentTime = GetCurrentMusicTime();
         AddNode(currentTime, -1f);
 
@@ -500,6 +510,12 @@ public class BpmManagerUI : MonoBehaviour
 
         // 即时写入 .tmp
         SaveBpmNodesToJson();
+
+        // 记录到全局撤回/重做系统
+        var afterSnapshot = CaptureBpmNodes();
+        UndoRedoManager.Execute(
+            undo: () => RestoreBpmNodes(beforeSnapshot),
+            redo: () => RestoreBpmNodes(afterSnapshot));
 
         // 新增节点后强制刷新整个 Content 布局树
         if (m_contentRect != null)
@@ -626,8 +642,9 @@ public class BpmManagerUI : MonoBehaviour
 
         entry.TimeInput = timeInputGo.GetComponent<TMP_InputField>();
 
-        // 时间输入框结束编辑时校验：不得小于前一个节点的时间
+        // 时间输入框：聚焦时捕获快照，结束编辑时校验并记录撤回
         var capturedEntry = entry;
+        entry.TimeInput.onSelect.AddListener(_ => m_bpmBeforeSnapshot = CaptureBpmNodes());
         entry.TimeInput.onEndEdit.AddListener((value) => HandleTimeInputEndEdit(capturedEntry, value));
 
         // ---- 第二行：BPM ----
@@ -657,11 +674,9 @@ public class BpmManagerUI : MonoBehaviour
 
         entry.BpmInput = bpmInputGo.GetComponent<TMP_InputField>();
 
-        // BPM 修改后即时写入 .tmp
-        entry.BpmInput.onEndEdit.AddListener((value) =>
-        {
-            SaveBpmNodesToJson();
-        });
+        // BPM 修改后即时写入 .tmp 并记录撤回
+        entry.BpmInput.onSelect.AddListener(_ => m_bpmBeforeSnapshot = CaptureBpmNodes());
+        entry.BpmInput.onEndEdit.AddListener((value) => HandleBpmInputEndEdit());
 
         // ---- 移除按钮（绝对定位到右上角） ----
         var removeBtnGo = CreateUIObject("RemoveButton", entry.Root.transform);
@@ -743,6 +758,8 @@ public class BpmManagerUI : MonoBehaviour
             return;
         }
 
+        var beforeSnapshot = CaptureBpmNodes();
+
         var entry = m_nodeEntries[index];
         m_nodeEntries.RemoveAt(index);
         Destroy(entry.Root);
@@ -752,6 +769,12 @@ public class BpmManagerUI : MonoBehaviour
 
         // 即时写入 .tmp
         SaveBpmNodesToJson();
+
+        // 记录到全局撤回/重做系统
+        var afterSnapshot = CaptureBpmNodes();
+        UndoRedoManager.Execute(
+            undo: () => RestoreBpmNodes(beforeSnapshot),
+            redo: () => RestoreBpmNodes(afterSnapshot));
     }
 
     /// <summary>
@@ -786,11 +809,39 @@ public class BpmManagerUI : MonoBehaviour
 
             entry.TimeInput.text = revertTime.ToString("F2");
             ShowWarningPopup(error);
+            return;
         }
-        else
+
+        // 校验通过，即时写入 .tmp
+        SaveBpmNodesToJson();
+
+        // 记录到全局撤回/重做系统
+        var afterSnapshot = CaptureBpmNodes();
+        var beforeSnapshot = m_bpmBeforeSnapshot ?? afterSnapshot;
+
+        if (!SnapshotsEqual(beforeSnapshot, afterSnapshot))
         {
-            // 校验通过，即时写入 .tmp
-            SaveBpmNodesToJson();
+            UndoRedoManager.Execute(
+                undo: () => RestoreBpmNodes(beforeSnapshot),
+                redo: () => RestoreBpmNodes(afterSnapshot));
+        }
+    }
+
+    /// <summary>
+    /// BPM 输入框编辑结束：保存并记录撤回
+    /// </summary>
+    private void HandleBpmInputEndEdit()
+    {
+        SaveBpmNodesToJson();
+
+        var afterSnapshot = CaptureBpmNodes();
+        var beforeSnapshot = m_bpmBeforeSnapshot ?? afterSnapshot;
+
+        if (!SnapshotsEqual(beforeSnapshot, afterSnapshot))
+        {
+            UndoRedoManager.Execute(
+                undo: () => RestoreBpmNodes(beforeSnapshot),
+                redo: () => RestoreBpmNodes(afterSnapshot));
         }
     }
 
@@ -868,15 +919,15 @@ public class BpmManagerUI : MonoBehaviour
     }
 
     /// <summary>
-    /// 切换 FunctionChanger 下原始按钮的可见性（跳过自身和 BpmPanel）
+    /// 切换 FunctionChanger 下原始按钮的可见性（跳过自身和所有面板）
     /// </summary>
     private void SetOriginalButtonsActive(bool isActive)
     {
         foreach (Transform child in m_functionChanger.transform)
         {
-            // BpmPanel 和自身（BPMManager）不在切换范围内
+            // 跳过自身和所有面板（面板由各自的返回按钮控制可见性）
             // 必须保持自身活跃，否则所有 onClick 回调失效！
-            if (child.gameObject == m_bpmPanel || child.gameObject == gameObject)
+            if (child.gameObject == gameObject || child.name.EndsWith("Panel"))
             {
                 continue;
             }
@@ -1037,7 +1088,98 @@ public class BpmManagerUI : MonoBehaviour
         m_nodeEntries.Clear();
     }
 
+    #region 撤回/重做快照
+
+    /// <summary>
+    /// 捕获当前所有 BPM 节点为快照
+    /// </summary>
+    private List<(float time, float bpm)> CaptureBpmNodes()
+    {
+        var nodes = new List<(float, float)>(m_nodeEntries.Count);
+        foreach (var entry in m_nodeEntries)
+        {
+            if (float.TryParse(entry.TimeInput.text, out float time)
+                && float.TryParse(entry.BpmInput.text, out float bpm))
+            {
+                nodes.Add((time, bpm));
+            }
+        }
+        return nodes;
+    }
+
+    /// <summary>
+    /// 从快照恢复所有 BPM 节点（清除现有节点后重建）
+    /// </summary>
+    private void RestoreBpmNodes(List<(float time, float bpm)> nodes)
+    {
+        ClearAllNodes();
+
+        for (int i = 0; i < nodes.Count; i++)
+        {
+            AddNode(nodes[i].time, nodes[i].bpm, isFirstNode: i == 0);
+            // 覆盖文本以确保精确还原快照值
+            m_nodeEntries[i].TimeInput.text = nodes[i].time.ToString("F2");
+            m_nodeEntries[i].BpmInput.text = nodes[i].bpm.ToString("F2");
+        }
+
+        SaveBpmNodesToJson();
+
+        if (m_contentRect != null)
+        {
+            LayoutRebuilder.ForceRebuildLayoutImmediate(m_contentRect);
+            Canvas.ForceUpdateCanvases();
+        }
+    }
+
+    /// <summary>
+    /// 比较两个 BPM 快照是否一致
+    /// </summary>
+    private static bool SnapshotsEqual(List<(float time, float bpm)> a, List<(float time, float bpm)> b)
+    {
+        if (a == null || b == null) return false;
+        if (a.Count != b.Count) return false;
+
+        for (int i = 0; i < a.Count; i++)
+        {
+            if (Mathf.Abs(a[i].time - b[i].time) > 0.001f) return false;
+            if (Mathf.Abs(a[i].bpm - b[i].bpm) > 0.001f) return false;
+        }
+        return true;
+    }
+
+    #endregion
+
     #region UI 工具方法
+
+    /// <summary>
+    /// 加载中文字体（Resources/Fonts/black.ttf），创建动态 TMP 字体资产。
+    /// 默认 TMP 字体不含中文字形，需用 black.ttf 动态生成才能正常显示中文。
+    /// </summary>
+    private TMP_FontAsset GetChineseFont()
+    {
+        if (m_chineseFont != null) return m_chineseFont;
+
+        var sourceFont = Resources.Load<Font>("Fonts/black");
+        if (sourceFont == null)
+        {
+            Debug.LogWarning($"[{GetType().Name}] 未找到 Fonts/black 字体，使用 TMP 默认字体");
+            return null;
+        }
+
+        m_chineseFont = TMP_FontAsset.CreateFontAsset(sourceFont);
+        if (m_chineseFont == null)
+        {
+            Debug.LogWarning($"[{GetType().Name}] 创建动态 TMP 字体失败，使用 TMP 默认字体");
+        }
+        else
+        {
+            // 预填充常用字符到动态 atlas，确保光标可渲染
+            m_chineseFont.TryAddCharacters(
+                "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 .");
+        }
+
+        return m_chineseFont;
+    }
 
     /// <summary>
     /// 创建一个空 UI GameObject 并附带 RectTransform
@@ -1061,6 +1203,7 @@ public class BpmManagerUI : MonoBehaviour
         tmp.fontSize = fontSize;
         tmp.color = Color.white;
         tmp.alignment = TextAlignmentOptions.Left;
+        tmp.font = GetChineseFont();
 
         return tmp;
     }
@@ -1094,6 +1237,7 @@ public class BpmManagerUI : MonoBehaviour
         textComp.fontSize = fontSize;
         textComp.color = Color.white;
         textComp.text = defaultText;
+        textComp.font = GetChineseFont();
 
         // Placeholder
         var placeholder = CreateUIObject("Placeholder", textArea.transform);
@@ -1108,6 +1252,7 @@ public class BpmManagerUI : MonoBehaviour
         placeholderText.color = new Color(0.5f, 0.5f, 0.5f, 1f);
         placeholderText.text = "...";
         placeholderText.fontStyle = FontStyles.Italic;
+        placeholderText.font = GetChineseFont();
 
         input.textViewport = textAreaRect;
         input.textComponent = textComp;

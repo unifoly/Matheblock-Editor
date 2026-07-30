@@ -72,10 +72,26 @@ Assets/
 | 模块 | 功能 |
 |------|------|
 | `SettingsMenuController` | 左右分栏菜单，滑块/开关/下拉框自动绑定 |
-| `SettingsDataManager` | PlayerPrefs 持久化（音量、全屏、画质） |
-| `KeyBindingsStore` | 快捷键绑定存储，导出 JSON |
-| `RebindButton` | 点击 5 秒内捕获按键（支持 Ctrl/Shift/Alt 组合） |
+| `SettingsDataManager` | JSON 文件持久化（音量、全屏、画质），自动从 PlayerPrefs 迁移 |
+| `KeyBindingsStore` | 快捷键绑定存储，JSON 持久化，支持组合键（`KeyCombo`） |
+| `RebindButton` | 点击 5 秒内捕获按键（支持 Ctrl/Shift/Alt 组合），启动时自动加载已保存绑定 |
 | `EditorOpenSettings` | 编辑器内以 Additive 模式叠加设置场景 |
+
+### 持久化
+
+设置数据保存到 `Application.persistentDataPath/` 下的 JSON 文件：
+
+- `Settings.json`：音量、画质、全屏等
+- `KeyBindings.json`：快捷键绑定（含组合键）
+
+首次运行时自动从旧版 PlayerPrefs 数据迁移。
+
+### 组合键支持
+
+快捷键系统全面支持组合键，格式为 `Ctrl + Shift + Alt + 主键`（修饰键可选）。
+检测时采用精确匹配策略：指定的修饰键必须按下，未指定的不能按下。
+
+详见 [技术文档](Docs/SettingsAndKeyBindings.md)。
 
 ## 谱面格式 (`chart.json`)
 
@@ -105,11 +121,18 @@ Assets/
 
 ## 快捷键
 
-| 快捷键 | 功能 |
-|--------|------|
-| Ctrl + E | 打开设置（Editor 模式） |
-| Esc | 关闭设置 / 返回 |
-| 滚轮 | 时间轴滚动 |
-| Ctrl + 滚轮 | 缩放网格 |
-| Ctrl + = / - | 缩放网格 |
-| ↑↓ 方向键 | 时间轴滚动 |
+| 快捷键 | 功能 | 可自定义 |
+|--------|------|---------|
+| Ctrl + Z | 撤回 | ✅ (`Editor_Undo`) |
+| Ctrl + Y | 重做 | ✅ (`Editor_Redo`) |
+| Ctrl + Shift + Z | 重做（兼容） | 自动兼容 |
+| Q | 放置 Click Note | ✅ (`Note_Click`) |
+| R | 放置 Flick Note | ✅ (`Note_Flick`) |
+| E | 放置 Drag Note | ✅ (`Note_Drag`) |
+| T | 放置 ReverseFlick Note | ✅ (`Note_ReverseFlick`) |
+| Ctrl + E | 打开设置（Editor 模式） | ❌ |
+| Esc | 关闭设置 / 返回 | ❌ |
+| 滚轮 | 时间轴滚动 | ❌ |
+| Ctrl + 滚轮 | 缩放网格 | ❌ |
+| Ctrl + = / - | 缩放网格 | ❌ |
+| ↑↓ 方向键 | 时间轴滚动 | ❌ |

@@ -4,6 +4,7 @@ using System.IO;
 using TMPro;
 using UnityEngine;
 using UnityEngine.Networking;
+using UnityEngine.SceneManagement;
 using UnityEngine.UI;
 
 public class EditorInit : MonoBehaviour
@@ -51,6 +52,33 @@ public class EditorInit : MonoBehaviour
         
         // 异步加载音频
         StartCoroutine(LoadAudioClip());
+    }
+
+    private void OnEnable()
+    {
+        SceneManager.sceneUnloaded += OnSceneUnloaded;
+    }
+
+    private void OnDisable()
+    {
+        SceneManager.sceneUnloaded -= OnSceneUnloaded;
+    }
+
+    /// <summary>
+    /// Setting 场景关闭后重新加载快捷键（用户可能修改了绑定）
+    /// </summary>
+    private void OnSceneUnloaded(Scene scene)
+    {
+        if (scene.name == "Setting")
+        {
+            UndoRedoManager.ReloadShortcuts();
+        }
+    }
+
+    private void Update()
+    {
+        // 每帧轮询撤回/重做快捷键（Ctrl+Z / Ctrl+Y / Ctrl+Shift+Z）
+        UndoRedoManager.ProcessKeyboardShortcuts();
     }
 
     private void InitializeGridSystem()

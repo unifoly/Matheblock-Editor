@@ -6,7 +6,8 @@ using UnityEngine.UI;
 namespace HexMap
 {
     /// <summary>
-    /// 快捷键重绑按钮行为：点击后等待按键，将按下的键名显示到关联的 KeyLabel
+    /// 快捷键重绑按钮行为：点击后等待按键，将按下的组合键名显示到关联的 KeyLabel。
+    /// 启动时自动加载已保存的绑定并显示。
     /// </summary>
     public class RebindButton : MonoBehaviour
     {
@@ -63,6 +64,26 @@ namespace HexMap
             {
                 m_button.onClick.AddListener(OnRebindClick);
             }
+        }
+
+        private void Start()
+        {
+            // 启动时加载已保存的绑定并显示
+            LoadSavedBinding();
+        }
+
+        /// <summary>
+        /// 从 KeyBindingsStore 加载已保存的绑定，若无则显示默认值
+        /// </summary>
+        private void LoadSavedBinding()
+        {
+            if (m_keyDisplay == null || string.IsNullOrEmpty(m_actionName))
+            {
+                return;
+            }
+
+            string savedKey = KeyBindingsStore.GetBinding(m_actionName, m_defaultKey);
+            m_keyDisplay.text = savedKey;
         }
 
         public void OnRebindClick()
@@ -165,16 +186,7 @@ namespace HexMap
 
         private bool IsModifierKey(KeyCode key)
         {
-            return key == KeyCode.LeftShift
-                || key == KeyCode.RightShift
-                || key == KeyCode.LeftControl
-                || key == KeyCode.RightControl
-                || key == KeyCode.LeftAlt
-                || key == KeyCode.RightAlt
-                || key == KeyCode.LeftCommand
-                || key == KeyCode.RightCommand
-                || key == KeyCode.LeftWindows
-                || key == KeyCode.RightWindows;
+            return KeyCombo.IsModifierKey(key);
         }
 
         /// <summary>
@@ -186,7 +198,7 @@ namespace HexMap
             // 修饰键单独按下时，直接显示其名称
             if (IsModifierKey(pressedKey))
             {
-                return FormatKeyName(pressedKey);
+                return KeyCombo.FormatKeyCode(pressedKey);
             }
 
             System.Text.StringBuilder sb = new System.Text.StringBuilder();
@@ -206,53 +218,9 @@ namespace HexMap
                 sb.Append("Alt + ");
             }
 
-            sb.Append(FormatKeyName(pressedKey));
+            sb.Append(KeyCombo.FormatKeyCode(pressedKey));
 
             return sb.ToString();
-        }
-
-        private string FormatKeyName(KeyCode key)
-        {
-            switch (key)
-            {
-                case KeyCode.Alpha0: return "0";
-                case KeyCode.Alpha1: return "1";
-                case KeyCode.Alpha2: return "2";
-                case KeyCode.Alpha3: return "3";
-                case KeyCode.Alpha4: return "4";
-                case KeyCode.Alpha5: return "5";
-                case KeyCode.Alpha6: return "6";
-                case KeyCode.Alpha7: return "7";
-                case KeyCode.Alpha8: return "8";
-                case KeyCode.Alpha9: return "9";
-                case KeyCode.Return: return "Enter";
-                case KeyCode.Escape: return "Esc";
-                case KeyCode.Backspace: return "Backspace";
-                case KeyCode.Delete: return "Delete";
-                case KeyCode.LeftShift: return "Shift";
-                case KeyCode.RightShift: return "Shift";
-                case KeyCode.LeftControl: return "Ctrl";
-                case KeyCode.RightControl: return "Ctrl";
-                case KeyCode.LeftAlt: return "Alt";
-                case KeyCode.RightAlt: return "Alt";
-                case KeyCode.UpArrow: return "↑";
-                case KeyCode.DownArrow: return "↓";
-                case KeyCode.LeftArrow: return "←";
-                case KeyCode.RightArrow: return "→";
-                case KeyCode.Space: return "Space";
-                case KeyCode.Tab: return "Tab";
-                case KeyCode.CapsLock: return "CapsLock";
-                case KeyCode.LeftWindows: return "LWin";
-                case KeyCode.RightWindows: return "RWin";
-                case KeyCode.Mouse0: return "鼠标左键";
-                case KeyCode.Mouse1: return "鼠标右键";
-                case KeyCode.Mouse2: return "鼠标中键";
-                case KeyCode.Mouse3: return "Mouse4";
-                case KeyCode.Mouse4: return "Mouse5";
-                case KeyCode.Mouse5: return "Mouse6";
-                case KeyCode.Mouse6: return "Mouse7";
-                default: return key.ToString();
-            }
         }
     }
 }

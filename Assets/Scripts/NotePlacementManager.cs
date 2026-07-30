@@ -55,8 +55,8 @@ public class NotePlacementManager : MonoBehaviour
     private const string k_actionDrag = "Note_Drag";
     private const string k_actionReverseFlick = "Note_ReverseFlick";
 
-    // 运行时从 KeyBindingsStore 加载的快捷键映射
-    private Dictionary<KeyCode, NoteType> m_hotkeyToType;
+    // 运行时从 KeyBindingsStore 加载的快捷键映射（支持组合键）
+    private List<(KeyCombo combo, NoteType type)> m_hotkeyList;
 
     private GridManager m_gridManager;
     private RectTransform m_playScreenRect;
@@ -145,11 +145,11 @@ public class NotePlacementManager : MonoBehaviour
     }
 
     /// <summary>
-    /// 从 KeyBindingsStore 加载快捷键绑定，将字符串键名解析为 KeyCode
+    /// 从 KeyBindingsStore 加载快捷键绑定，解析为 KeyCombo（支持组合键）
     /// </summary>
     private void LoadHotkeys()
     {
-        m_hotkeyToType = new Dictionary<KeyCode, NoteType>();
+        m_hotkeyList = new List<(KeyCombo, NoteType)>();
 
         TryAddHotkey(k_actionClick, "Q", NoteType.Click);
         TryAddHotkey(k_actionFlick, "R", NoteType.Flick);
@@ -159,50 +159,18 @@ public class NotePlacementManager : MonoBehaviour
 
     private void TryAddHotkey(string actionName, string defaultKey, NoteType type)
     {
-        string keyName = KeyBindingsStore.GetBinding(actionName, defaultKey);
-        KeyCode keyCode = ParseKeyName(keyName);
-        if (keyCode != KeyCode.None)
+        // 使用 KeyCombo 替代单 KeyCode，支持组合键
+        KeyCombo defaultCombo = KeyCombo.Parse(defaultKey);
+        KeyCombo combo = KeyBindingsStore.GetKeyCombo(actionName, defaultCombo);
+
+        if (combo.IsValid)
         {
-            m_hotkeyToType[keyCode] = type;
+            m_hotkeyList.Add((combo, type));
         }
         else
         {
-            Debug.LogWarning($"[NotePlacementManager] 无法解析快捷键: {keyName} (action={actionName})，使用默认 {defaultKey}");
-            if (Enum.TryParse<KeyCode>(defaultKey, out KeyCode defaultCode))
-            {
-                m_hotkeyToType[defaultCode] = type;
-            }
-        }
-    }
-
-    /// <summary>
-    /// 将 RebindButton 存储的显示名解析回 KeyCode
-    /// </summary>
-    private static KeyCode ParseKeyName(string keyName)
-    {
-        // 直接枚举解析（字母键如 "Q"、"E" 等可直接匹配）
-        if (Enum.TryParse<KeyCode>(keyName, out KeyCode keyCode))
-            return keyCode;
-
-        // 处理 RebindButton.FormatKeyName 中的特殊映射
-        switch (keyName)
-        {
-            case "0": return KeyCode.Alpha0;
-            case "1": return KeyCode.Alpha1;
-            case "2": return KeyCode.Alpha2;
-            case "3": return KeyCode.Alpha3;
-            case "4": return KeyCode.Alpha4;
-            case "5": return KeyCode.Alpha5;
-            case "6": return KeyCode.Alpha6;
-            case "7": return KeyCode.Alpha7;
-            case "8": return KeyCode.Alpha8;
-            case "9": return KeyCode.Alpha9;
-            case "Enter": return KeyCode.Return;
-            case "Esc": return KeyCode.Escape;
-            case "Space": return KeyCode.Space;
-            case "Tab": return KeyCode.Tab;
-            case "CapsLock": return KeyCode.CapsLock;
-            default: return KeyCode.None;
+            Debug.LogWarning($"[NotePlacementManager] 无法解析快捷键: {combo.ToDisplayString()} (action={actionName})，使用默认 {defaultKey}");
+            m_hotkeyList.Add((defaultCombo, type));
         }
     }
 
@@ -356,17 +324,17 @@ public class NotePlacementManager : MonoBehaviour
     }
 
     /// <summary>
-    /// 检测 Q/E/R 按键，在悬停位置放置对应类型的 Note
+    /// 检测快捷键（支持组合键），在悬停位置放置对应类型的 Note
     /// </summary>
     private void HandlePlacementInput()
     {
-        if (!m_isHovering || m_hotkeyToType == null) return;
+        if (!m_isHovering || m_hotkeyList == null) return;
 
-        foreach (var kvp in m_hotkeyToType)
+        foreach (var (combo, type) in m_hotkeyList)
         {
-            if (Input.GetKeyDown(kvp.Key))
+            if (combo.IsPressed())
             {
-                PlaceNote(kvp.Value, m_hoveredLane, m_hoveredTime);
+                PlaceNote(type, m_hoveredLane, m_hoveredTime);
             }
         }
     }

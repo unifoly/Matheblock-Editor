@@ -7,7 +7,7 @@ using UnityEngine;
 namespace HexMap
 {
     /// <summary>
-    /// 组合键结构体：修饰键 + 主键，支持解析、格式化和实时检测。
+    /// 组合键结构体：修饰键 + 主键/滚轮，支持解析、格式化和实时检测。
     /// </summary>
     [Serializable]
     public struct KeyCombo
@@ -16,11 +16,15 @@ namespace HexMap
         [SerializeField] private bool m_shift;
         [SerializeField] private bool m_alt;
         [SerializeField] private KeyCode m_mainKey;
+        // 滚轮方向：0=无，1=上，-1=下
+        [SerializeField] private sbyte m_wheelDir;
 
         public bool Ctrl => m_ctrl;
         public bool Shift => m_shift;
         public bool Alt => m_alt;
         public KeyCode MainKey => m_mainKey;
+        public sbyte WheelDir => m_wheelDir;
+        public bool IsWheel => m_wheelDir != 0;
 
         public KeyCombo(bool ctrl, bool shift, bool alt, KeyCode mainKey)
         {
@@ -28,6 +32,16 @@ namespace HexMap
             m_shift = shift;
             m_alt = alt;
             m_mainKey = mainKey;
+            m_wheelDir = 0;
+        }
+
+        public KeyCombo(bool ctrl, bool shift, bool alt, sbyte wheelDir)
+        {
+            m_ctrl = ctrl;
+            m_shift = shift;
+            m_alt = alt;
+            m_mainKey = KeyCode.None;
+            m_wheelDir = wheelDir;
         }
 
         /// <summary>
@@ -45,6 +59,7 @@ namespace HexMap
             bool shift = false;
             bool alt = false;
             KeyCode mainKey = KeyCode.None;
+            sbyte wheelDir = 0;
 
             // 按 " + " 分割
             string[] parts = trimmed.Split(new[] { " + " }, StringSplitOptions.None);
@@ -65,11 +80,24 @@ namespace HexMap
                 {
                     alt = true;
                 }
+                else if (p == "滚轮上" || p == "WheelUp")
+                {
+                    wheelDir = 1;
+                }
+                else if (p == "滚轮下" || p == "WheelDown")
+                {
+                    wheelDir = -1;
+                }
                 else
                 {
                     // 主键
                     mainKey = ParseKeyCode(p);
                 }
+            }
+
+            if (wheelDir != 0)
+            {
+                return new KeyCombo(ctrl, shift, alt, wheelDir);
             }
 
             return new KeyCombo(ctrl, shift, alt, mainKey);
@@ -80,7 +108,7 @@ namespace HexMap
         /// </summary>
         public string ToDisplayString()
         {
-            if (m_mainKey == KeyCode.None)
+            if (m_mainKey == KeyCode.None && m_wheelDir == 0)
             {
                 return "None";
             }
@@ -102,7 +130,19 @@ namespace HexMap
                 sb.Append("Alt + ");
             }
 
-            sb.Append(FormatKeyCode(m_mainKey));
+            if (m_wheelDir == 1)
+            {
+                sb.Append("滚轮上");
+            }
+            else if (m_wheelDir == -1)
+            {
+                sb.Append("滚轮下");
+            }
+            else
+            {
+                sb.Append(FormatKeyCode(m_mainKey));
+            }
+
             return sb.ToString();
         }
 
@@ -113,6 +153,14 @@ namespace HexMap
         /// </summary>
         public bool IsPressed()
         {
+            // 鼠标滚轮检测
+            if (m_wheelDir != 0)
+            {
+                if (!CheckModifiers()) return false;
+                float wheel = Input.GetAxis("Mouse ScrollWheel");
+                return (m_wheelDir > 0 && wheel > 0f) || (m_wheelDir < 0 && wheel < 0f);
+            }
+
             if (m_mainKey == KeyCode.None)
             {
                 return false;
@@ -124,20 +172,69 @@ namespace HexMap
                 return AnyKeyDown(GetModifierVariants(m_mainKey));
             }
 
-            // 组合键：修饰键精确匹配 + 主键 GetKeyDown
-            bool ctrlHeld = IsAnyModifierHeld(KeyCode.LeftControl, KeyCode.RightControl);
-            bool shiftHeld = IsAnyModifierHeld(KeyCode.LeftShift, KeyCode.RightShift);
-            bool altHeld = IsAnyModifierHeld(KeyCode.LeftAlt, KeyCode.RightAlt);
-
-            // 精确匹配：指定的修饰键必须按下，未指定的不能按下
-            if (m_ctrl != ctrlHeld) return false;
-            if (m_shift != shiftHeld) return false;
-            if (m_alt != altHeld) return false;
+            if (!CheckModifiers()) return false;
 
             return Input.GetKeyDown(m_mainKey);
         }
 
-        public bool IsValid => m_mainKey != KeyCode.None;
+        /// <summary>
+        /// 检测此组合键是否正在被持续按住（用于滚动等连续输入）。
+        /// 修饰键要求精确匹配，主键要求 GetKey（持续）。
+        /// </summary>
+        public bool IsHeld()
+        {
+            // 鼠标滚轮：IsHeld 等同于 IsPressed（滚轮无持续按住概念）
+            if (m_wheelDir != 0)
+            {
+                return IsPressed();
+            }
+
+            if (m_mainKey == KeyCode.None)
+            {
+                return false;
+            }
+
+            // 主键是修饰键本身：检测 GetKey（左右皆可）
+            if (IsModifierKey(m_mainKey))
+            {
+                return AnyKeyHeld(GetModifierVariants(m_mainKey));
+            }
+
+            if (!CheckModifiers()) return false;
+
+            return Input.GetKey(m_mainKey);
+        }
+
+        /// <summary>
+        /// 检查修饰键是否精确匹配
+        /// </summary>
+        private bool CheckModifiers()
+        {
+            bool ctrlHeld = IsAnyModifierHeld(KeyCode.LeftControl, KeyCode.RightControl);
+            bool shiftHeld = IsAnyModifierHeld(KeyCode.LeftShift, KeyCode.RightShift);
+            bool altHeld = IsAnyModifierHeld(KeyCode.LeftAlt, KeyCode.RightAlt);
+
+            if (m_ctrl != ctrlHeld) return false;
+            if (m_shift != shiftHeld) return false;
+            if (m_alt != altHeld) return false;
+
+            return true;
+        }
+
+        private static bool AnyKeyHeld(KeyCode[] keys)
+        {
+            foreach (KeyCode key in keys)
+            {
+                if (Input.GetKey(key))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        public bool IsValid => m_mainKey != KeyCode.None || m_wheelDir != 0;
 
         /// <summary>
         /// 判断按键是否为修饰键

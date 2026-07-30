@@ -142,6 +142,7 @@ public struct KeyCombo
     [SerializeField] private bool m_shift;      // 是否需要 Shift
     [SerializeField] private bool m_alt;        // 是否需要 Alt
     [SerializeField] private KeyCode m_mainKey; // 主键
+    [SerializeField] private sbyte m_wheelDir;  // 滚轮方向：0=无，1=上，-1=下
 }
 ```
 
@@ -149,9 +150,10 @@ public struct KeyCombo
 
 | 方法 | 说明 |
 |------|------|
-| `Parse(string)` | 从显示字符串解析（如 `"Ctrl + Shift + A"`） |
+| `Parse(string)` | 从显示字符串解析（如 `"Ctrl + 滚轮上"`） |
 | `ToDisplayString()` | 格式化为显示字符串 |
 | `IsPressed()` | 检测当前帧是否触发（修饰键精确匹配） |
+| `IsHeld()` | 检测是否持续按住（用于滚动等连续输入） |
 | `FormatKeyCode(KeyCode)` | 将 KeyCode 格式化为用户友好的显示名 |
 
 **检测逻辑** — `IsPressed()` 采用精确匹配策略：
@@ -178,7 +180,7 @@ public struct KeyCombo
 
 ### RebindButton
 
-点击后 5 秒内捕获按键，支持 Ctrl/Shift/Alt 组合键。`Start()` 时自动从 `KeyBindingsStore` 加载已保存的绑定并显示。
+点击后 5 秒内捕获按键，支持 Ctrl/Shift/Alt 组合键和鼠标滚轮上/下。`Start()` 时自动从 `KeyBindingsStore` 加载已保存的绑定并显示。
 
 ### UndoRedoManager
 
@@ -186,14 +188,26 @@ public struct KeyCombo
 
 Setting 场景关闭后，`EditorInit` 自动调用 `UndoRedoManager.ReloadShortcuts()` 重新加载快捷键。
 
-### Setting 场景 - 撤回/重做行
+### GridScrollHandler
 
-通过 Unity MCP 在 `Page_ShortcutKey` 页面中新增了两行 RebindButton：
+从 `KeyBindingsStore` 读取滚动和缩放快捷键，支持鼠标滚轮和键盘。鼠标滚轮上/下可被 RebindButton 捕获并重绑。
+
+### Setting 场景 - 可自定义快捷键行
+
+通过 Unity MCP 在 `Page_ShortcutKey` 页面中新增了所有可自定义的 RebindButton 行：
 
 | 行 | ActionName | DefaultKey | KeyText |
 |----|-----------|------------|---------|
+| Row_Note_Click | `Note_Click` | `Q` | Click |
+| Row_Note_Flick | `Note_Flick` | `R` | Flick |
+| Row_Note_Drag | `Note_Drag` | `E` | Drag |
+| Row_Note_ReverseFlick | `Note_ReverseFlick` | `T` | ReverseFlick |
 | Row_Undo | `Editor_Undo` | `Ctrl + Z` | 撤回 |
 | Row_Redo | `Editor_Redo` | `Ctrl + Y` | 重做 |
+| Row_ScrollUp | `Editor_ScrollUp` | `滚轮上` | 向上滚动 |
+| Row_ScrollDown | `Editor_ScrollDown` | `滚轮下` | 向下滚动 |
+| Row_ZoomIn | `Editor_ZoomIn` | `Ctrl + 滚轮上` | 放大 |
+| Row_ZoomOut | `Editor_ZoomOut` | `Ctrl + 滚轮下` | 缩小 |
 
 ## 谱面格式 (`chart.json`)
 
@@ -232,9 +246,9 @@ Setting 场景关闭后，`EditorInit` 自动调用 `UndoRedoManager.ReloadShort
 | R | 放置 Flick Note | ✅ (`Note_Flick`) |
 | E | 放置 Drag Note | ✅ (`Note_Drag`) |
 | T | 放置 ReverseFlick Note | ✅ (`Note_ReverseFlick`) |
+| 滚轮上 | 向上滚动 | ✅ (`Editor_ScrollUp`) |
+| 滚轮下 | 向下滚动 | ✅ (`Editor_ScrollDown`) |
+| Ctrl + 滚轮上 | 放大 | ✅ (`Editor_ZoomIn`) |
+| Ctrl + 滚轮下 | 缩小 | ✅ (`Editor_ZoomOut`) |
 | Ctrl + E | 打开设置（Editor 模式） | ❌ |
 | Esc | 关闭设置 / 返回 | ❌ |
-| 滚轮 | 时间轴滚动 | ❌ |
-| Ctrl + 滚轮 | 缩放网格 | ❌ |
-| Ctrl + = / - | 缩放网格 | ❌ |
-| ↑↓ 方向键 | 时间轴滚动 | ❌ |

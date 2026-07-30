@@ -149,6 +149,22 @@ namespace HexMap
                     yield break;
                 }
 
+                // 检测鼠标滚轮
+                float wheel = Input.GetAxis("Mouse ScrollWheel");
+                if (Mathf.Abs(wheel) > 0.01f)
+                {
+                    string wheelName = BuildWheelName(wheel > 0f);
+                    m_keyDisplay.text = wheelName;
+
+                    if (!string.IsNullOrEmpty(m_actionName))
+                    {
+                        KeyBindingsStore.SetBinding(m_actionName, wheelName);
+                    }
+
+                    m_isRebinding = false;
+                    yield break;
+                }
+
                 elapsed += Time.unscaledDeltaTime;
                 yield return null;
             }
@@ -219,6 +235,33 @@ namespace HexMap
             }
 
             sb.Append(KeyCombo.FormatKeyCode(pressedKey));
+
+            return sb.ToString();
+        }
+
+        /// <summary>
+        /// 构建滚轮绑定名（含修饰键前缀）
+        /// </summary>
+        private string BuildWheelName(bool wheelUp)
+        {
+            System.Text.StringBuilder sb = new System.Text.StringBuilder();
+
+            if (Input.GetKey(KeyCode.LeftControl) || Input.GetKey(KeyCode.RightControl))
+            {
+                sb.Append("Ctrl + ");
+            }
+
+            if (Input.GetKey(KeyCode.LeftShift) || Input.GetKey(KeyCode.RightShift))
+            {
+                sb.Append("Shift + ");
+            }
+
+            if (Input.GetKey(KeyCode.LeftAlt) || Input.GetKey(KeyCode.RightAlt))
+            {
+                sb.Append("Alt + ");
+            }
+
+            sb.Append(wheelUp ? "滚轮上" : "滚轮下");
 
             return sb.ToString();
         }

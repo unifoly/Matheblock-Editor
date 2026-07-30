@@ -1,21 +1,42 @@
 using UnityEngine;
 using UnityEngine.EventSystems;
+using HexMap;
 
 public class GridScrollHandler : MonoBehaviour, IScrollHandler, IEventSystemHandler
 {
+    // 可自定义快捷键的 Action 名
+    private const string k_actionScrollUp = "Editor_ScrollUp";
+    private const string k_actionScrollDown = "Editor_ScrollDown";
+    private const string k_actionZoomIn = "Editor_ZoomIn";
+    private const string k_actionZoomOut = "Editor_ZoomOut";
+
     private GridManager m_gridManager;
     private EasingAreaManager m_easingAreaManager;
     private RectTransform m_playScreenRect;
 
-    // Ctrl 键状态缓存：EventSystem 回调里 Input.GetKey 有时返回滞后值，
-    // 每帧在 Update 中先缓存，OnScroll 同时读缓存和实时值进行兜底。
-    private bool m_ctrlCached;
+    // 从 KeyBindingsStore 加载的组合键
+    private KeyCombo m_scrollUpCombo;
+    private KeyCombo m_scrollDownCombo;
+    private KeyCombo m_zoomInCombo;
+    private KeyCombo m_zoomOutCombo;
 
     private void Start()
     {
         FindGridManager();
         m_easingAreaManager = GetComponent<EasingAreaManager>();
         m_playScreenRect = GetComponent<RectTransform>();
+        LoadShortcuts();
+    }
+
+    /// <summary>
+    /// 从 KeyBindingsStore 加载快捷键绑定
+    /// </summary>
+    private void LoadShortcuts()
+    {
+        m_scrollUpCombo = KeyBindingsStore.GetKeyCombo(k_actionScrollUp, KeyCombo.Parse("滚轮上"));
+        m_scrollDownCombo = KeyBindingsStore.GetKeyCombo(k_actionScrollDown, KeyCombo.Parse("滚轮下"));
+        m_zoomInCombo = KeyBindingsStore.GetKeyCombo(k_actionZoomIn, KeyCombo.Parse("Ctrl + 滚轮上"));
+        m_zoomOutCombo = KeyBindingsStore.GetKeyCombo(k_actionZoomOut, KeyCombo.Parse("Ctrl + 滚轮下"));
     }
 
     private void FindGridManager()
@@ -40,32 +61,24 @@ public class GridScrollHandler : MonoBehaviour, IScrollHandler, IEventSystemHand
     {
         if (m_gridManager == null) return;
 
-        // 缓存 Ctrl 状态供 OnScroll 使用
-        m_ctrlCached = Input.GetKey(KeyCode.LeftControl)
-                       || Input.GetKey(KeyCode.RightControl);
-
-        // 键盘上下方向键滚动（与滚轮缩放/滚动的判定无关）
-        if (Input.GetKey(KeyCode.UpArrow))
+        // 键盘滚动（持续按住）+ 滚轮滚动（如果绑定的是滚轮，IsHeld 会检测 GetAxis）
+        if (m_scrollUpCombo.IsHeld())
         {
             m_gridManager.HandleScroll(-0.1f);
         }
-        if (Input.GetKey(KeyCode.DownArrow))
+        if (m_scrollDownCombo.IsHeld())
         {
             m_gridManager.HandleScroll(0.1f);
         }
 
-        // 键盘缩放兜底：Ctrl+= / Ctrl+-（绕开 Ctrl+滚轮 在 EventSystem 中的不确定性，
-        // 让用户可以验证缩放逻辑本身是否生效）
-        if (m_ctrlCached)
+        // 键盘缩放 + 滚轮缩放
+        if (m_zoomInCombo.IsPressed())
         {
-            if (Input.GetKeyDown(KeyCode.Equals) || Input.GetKeyDown(KeyCode.KeypadPlus))
-            {
-                m_gridManager.HandleZoom(1f);
-            }
-            if (Input.GetKeyDown(KeyCode.Minus) || Input.GetKeyDown(KeyCode.KeypadMinus))
-            {
-                m_gridManager.HandleZoom(-1f);
-            }
+            m_gridManager.HandleZoom(1f);
+        }
+        if (m_zoomOutCombo.IsPressed())
+        {
+            m_gridManager.HandleZoom(-1f);
         }
     }
 
@@ -73,12 +86,10 @@ public class GridScrollHandler : MonoBehaviour, IScrollHandler, IEventSystemHand
     {
         if (m_gridManager == null) return;
 
-        // 双重检测：缓存值 + 实时值，任一为真则视为按下 Ctrl
-        bool isCtrlHeld = m_ctrlCached
-                          || Input.GetKey(KeyCode.LeftControl)
+        bool isCtrlHeld = Input.GetKey(KeyCode.LeftControl)
                           || Input.GetKey(KeyCode.RightControl);
 
-        // 检测鼠标是否在右半缓动区：若是则将滚轮转为水平滚动
+        // 检测鼠标是否在右半缓动区：若是则将滚轮转为水平滚动（此行为不可自定义）
         if (!isCtrlHeld && m_easingAreaManager != null && m_playScreenRect != null
             && IsMouseInEasingArea(eventData.position))
         {
@@ -86,15 +97,10 @@ public class GridScrollHandler : MonoBehaviour, IScrollHandler, IEventSystemHand
             return;
         }
 
-        if (isCtrlHeld)
-        {
-            // Ctrl+滚轮：缩放线间距（实质不变，仅视觉密度）
-            m_gridManager.HandleZoom(eventData.scrollDelta.y);
-        }
-        else
-        {
-            m_gridManager.HandleScroll(-eventData.scrollDelta.y);
-        }
+        // 如果滚动/缩放绑定的是滚轮，由 Update() 中的 IsHeld/IsPressed 处理（通过 Input.GetAxis）
+        // OnScroll 仅处理非滚轮绑定的情况，避免双重触发
+        // 实际上滚轮绑定已经在 Update 中通过 Input.GetAxis 处理了
+        // 这里仅处理：当滚动绑定不是滚轮时，滚轮事件不做任何事（用户已将滚轮重绑为其他键）
     }
 
     /// <summary>

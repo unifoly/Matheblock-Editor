@@ -81,17 +81,119 @@ Assets/
 
 设置数据保存到 `Application.persistentDataPath/` 下的 JSON 文件：
 
-- `Settings.json`：音量、画质、全屏等
-- `KeyBindings.json`：快捷键绑定（含组合键）
+| 文件 | 内容 |
+|------|------|
+| `Settings.json` | 音量、画质、全屏等设置 |
+| `KeyBindings.json` | 快捷键绑定（含组合键） |
 
 首次运行时自动从旧版 PlayerPrefs 数据迁移。
 
-### 组合键支持
+**Settings.json 格式：**
 
-快捷键系统全面支持组合键，格式为 `Ctrl + Shift + Alt + 主键`（修饰键可选）。
-检测时采用精确匹配策略：指定的修饰键必须按下，未指定的不能按下。
+```json
+{
+    "masterVolume": 1.0,
+    "musicVolume": 0.8,
+    "sfxVolume": 1.0,
+    "isFullscreen": true,
+    "qualityLevel": 2,
+    "resolutionIndex": 0
+}
+```
 
-详见 [技术文档](Docs/SettingsAndKeyBindings.md)。
+**KeyBindings.json 格式：**
+
+```json
+{
+    "entries": [
+        {
+            "actionName": "Note_Click",
+            "combo": {
+                "m_ctrl": false,
+                "m_shift": false,
+                "m_alt": false,
+                "m_mainKey": 113
+            }
+        },
+        {
+            "actionName": "Editor_Undo",
+            "combo": {
+                "m_ctrl": true,
+                "m_shift": false,
+                "m_alt": false,
+                "m_mainKey": 122
+            }
+        }
+    ]
+}
+```
+
+> `m_mainKey` 的值是 `KeyCode` 枚举的整数值（如 113 = `KeyCode.Q`，122 = `KeyCode.Z`）。
+
+### 组合键支持（KeyCombo）
+
+快捷键系统全面支持组合键。`KeyCombo` 是一个可序列化结构体，位于 `HexMap` 命名空间：
+
+```csharp
+[Serializable]
+public struct KeyCombo
+{
+    [SerializeField] private bool m_ctrl;       // 是否需要 Ctrl
+    [SerializeField] private bool m_shift;      // 是否需要 Shift
+    [SerializeField] private bool m_alt;        // 是否需要 Alt
+    [SerializeField] private KeyCode m_mainKey; // 主键
+}
+```
+
+**核心方法：**
+
+| 方法 | 说明 |
+|------|------|
+| `Parse(string)` | 从显示字符串解析（如 `"Ctrl + Shift + A"`） |
+| `ToDisplayString()` | 格式化为显示字符串 |
+| `IsPressed()` | 检测当前帧是否触发（修饰键精确匹配） |
+| `FormatKeyCode(KeyCode)` | 将 KeyCode 格式化为用户友好的显示名 |
+
+**检测逻辑** — `IsPressed()` 采用精确匹配策略：
+- 指定的修饰键必须处于按下状态
+- 未指定的修饰键不能处于按下状态
+- 主键必须在当前帧 `GetKeyDown`
+- 当主键本身是修饰键时（如单独绑定 "Shift"），检测 `GetKeyDown`（左右皆可）
+
+**组合键格式** — 以 `" + "` 分隔，修饰键顺序固定为 `Ctrl -> Shift -> Alt -> 主键`：
+- `Ctrl + Z`
+- `Ctrl + Shift + Z`
+- `Ctrl + Alt + S`
+- `Q`（无修饰键）
+
+### KeyBindingsStore API
+
+| 方法 | 说明 |
+|------|------|
+| `GetKeyCombo(actionName, defaultCombo)` | 获取组合键绑定 |
+| `GetBinding(actionName, defaultKey)` | 获取显示名字符串（向后兼容） |
+| `SetBinding(actionName, keyName)` | 设置绑定（解析字符串为 KeyCombo） |
+| `SetKeyCombo(actionName, combo)` | 直接设置 KeyCombo |
+| `ResetAll()` | 清除所有自定义绑定 |
+
+### RebindButton
+
+点击后 5 秒内捕获按键，支持 Ctrl/Shift/Alt 组合键。`Start()` 时自动从 `KeyBindingsStore` 加载已保存的绑定并显示。
+
+### UndoRedoManager
+
+从 `KeyBindingsStore` 读取快捷键（默认 `Ctrl+Z` / `Ctrl+Y`），用户可在设置页面重绑。保留 `Ctrl+Shift+Z` 作为重做兼容快捷键。
+
+Setting 场景关闭后，`EditorInit` 自动调用 `UndoRedoManager.ReloadShortcuts()` 重新加载快捷键。
+
+### Setting 场景 - 撤回/重做行
+
+通过 Unity MCP 在 `Page_ShortcutKey` 页面中新增了两行 RebindButton：
+
+| 行 | ActionName | DefaultKey | KeyText |
+|----|-----------|------------|---------|
+| Row_Undo | `Editor_Undo` | `Ctrl + Z` | 撤回 |
+| Row_Redo | `Editor_Redo` | `Ctrl + Y` | 重做 |
 
 ## 谱面格式 (`chart.json`)
 

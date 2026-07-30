@@ -26,6 +26,7 @@ Assets/
 ├── Resources/          # 动态资源 (Fonts/black.ttf)
 ├── Scenes/             # 场景文件
 ├── Scripts/            # 核心脚本
+│   ├── CubeSystem/     #   方体管理系统（6面/12棱/24方向）
 │   ├── Editor/         #   Editor 工具脚本
 │   └── Debug/          #   调试工具
 ├── Shaders/            # 自定义着色器 (Aurora.shader, Blur.shader)
@@ -222,9 +223,166 @@ Setting 场景关闭后，`EditorInit` 自动调用 `UndoRedoManager.ReloadShort
   "bpmNodes": [
     { "time": 0.0, "bpm": 120.0 },
     { "time": 3.0, "bpm": 30.0 }
+  ],
+  "notes": [
+    { "type": "Click", "lane": 0, "time": 1.0 }
+  ],
+  "cubes": [
+    {
+      "cubeId": 1,
+      "cubeName": "Cube_1",
+      "cubeNote": "",
+      "tracks": []
+    }
   ]
 }
 ```
+
+## 方体系统 (Cube System)
+
+方体系统是谱面编辑器的核心3D可视化模块，所有note轨道围绕正方体的 **6个面、12条棱、24个方向** 组织。
+
+### 设计概念
+
+| 概念 | 数量 | 说明 |
+|------|------|------|
+| 面 (CubeFace) | 6 | 上/下/左/右/前/后，对应Y+/Y-/X-/X+/Z+/Z- |
+| 棱 (Edge) | 12 | 正方体的12条边，100%不透明白色 |
+| 方向 (FaceDirection) | 4 | 每个面的上/下/左/右 |
+| note轨道总数 | 24 | 6面 × 4方向 = 24条独立轨道 |
+
+用户在 UpperList 区域选择某个面（6方向之一）后，展示该面对应的4条note轨道。
+
+### 文件结构
+
+```
+Assets/Scripts/CubeSystem/
+├── CubeEnums.cs          # CubeFace / FaceDirection 枚举 + CubeConstants 常量
+├── CubeDataModels.cs     # JSON 可序列化数据模型
+├── CubeVisualizer.cs     # 3D 可视化（12棱 + 6面）
+├── CubeManager.cs        # 方体管理器（创建/选择/持久化）
+└── CubeManagerUI.cs      # 方体管理面板 UI + 快捷选择绑定
+```
+
+### 数据模型
+
+方体数据存储在 `chart.tmp`（编辑期间）和 `chart.json`（保存后）的 `cubes` 字段中，与 `info`、`bpmNodes`、`notes` 共用同一个 JSON 文件：
+
+```json
+{
+    "info": { "MusicName": "...", "Charter": "...", "Illustrationer": "...", "Musician": "..." },
+    "bpmNodes": [ {"time": 0.0, "bpm": 120.0} ],
+    "notes": [ {"type": "Click", "lane": 0, "time": 1.0} ],
+    "cubes": [
+        {
+            "cubeId": 1,
+            "cubeName": "Cube_1",
+            "cubeNote": "",
+            "tracks": [
+                { "face": "Up", "direction": "Up", "notes": [
+                    { "type": "Click", "lane": 0, "time": 1.0 }
+                ] },
+                { "face": "Up", "direction": "Down", "notes": [] }
+                // ... 共24条轨道（6面 × 4方向）
+            ]
+        }
+    ]
+}
+```
+
+| 类 | 说明 |
+|----|------|
+| `CubeNoteData` | 单个Note数据（type, lane, time），lane 保存原始轨道索引 |
+| `CubeNoteTrackData` | 单条轨道（face, direction, notes列表），由面+方向唯一标识 |
+| `CubeData` | 单个方体（cubeId, cubeName, cubeNote, 24条tracks） |
+
+### 可视化规格
+
+| 元素 | 渲染方式 | 颜色 | 透明度 |
+|------|----------|------|--------|
+| 12条棱 | 细长 Cube Primitive | 白色 (1,1,1) | 100% 不透明 |
+| 6个面 | Quad Primitive | 白色 (1,1,1) | 80% 半透明 |
+
+- 棱材质：Unlit/CubeUnlit shader，不透明，恒白色
+- 面材质：Unlit/CubeUnlit shader，80% 透明，双面渲染（Cull Off）
+- 不受光照影响，所有面颜色一致
+- 颜色和透明度可通过 `CubeVisualizer.SetEdgeColor()` / `SetFaceColor()` 调整（预留扩展）
+
+### CubeManager API
+
+| 方法 / 属性 | 说明 |
+|-------------|------|
+| `CreateCube()` | 创建新方体，自动初始化24条空轨道并生成3D可视化 |
+| `DeleteCube(int cubeId)` | 删除指定方体（仅剩1个时禁止删除） |
+| `SetActiveCube(int cubeId)` | 设置当前选中的方体，触发轨道组切换 |
+| `SetActiveTrack(CubeFace, FaceDirection)` | 设置当前选中的面和方向 |
+| `GetActiveTrack()` | 获取当前选中轨道数据 |
+| `GetCube(int cubeId)` | 根据 ID 获取方体数据 |
+| `SaveCubesToJson()` | 保存方体数据到 chart.tmp（保留其他字段） |
+| `Cubes` | 只读访问所有方体列表 |
+| `ActiveCubeId` / `ActiveFace` / `ActiveDirection` | 当前选择状态 |
+
+> 首次启动时若无方体数据，自动创建默认方体 `Cube_1`（ID=1）。后续创建的方体 ID 从 2 开始递增。
+
+### 事件
+
+| 事件 | 触发时机 |
+|------|----------|
+| `CubeCreated` | 方体创建后 |
+| `CubeDeleted` | 方体删除后 |
+| `ActiveCubeChanged` | 选中的方体变化时（切换轨道组） |
+| `ActiveTrackChanged` | 选中的面/方向变化时 |
+
+### 场景结构
+
+```
+CubeSystem (GameObject + CubeManager)
+├── Cube_1 (GameObject + CubeVisualizer)
+│   ├── Edges/
+│   │   ├── Edge_0 ~ Edge_11  (12条棱)
+│   └── Faces/
+│       ├── Face_Up / Face_Down / Face_Left / Face_Right / Face_Front / Face_Back
+├── Cube_2
+└── ...
+```
+
+### 方体管理 UI (`CubeManagerUI`)
+
+挂在 FunctionChanger 下的「CubeManager」按钮上，点击后弹出全屏面板。
+
+**面板功能：**
+
+| 操作 | 说明 |
+|------|------|
+| 创建方体 | 点击底部「+ 创建方体」按钮，调用 `CubeManager.CreateCube()` |
+| 选中方体 | 点击列表项的「选中」按钮，切换轨道组并高亮 |
+| 删除方体 | 点击列表项的「X」按钮（仅剩1个方体时禁用） |
+| 编辑备注 | 每行备注输入框可编辑，回车后保存到 chart.tmp |
+| 返回 | 点击左上角「<」返回按钮，隐藏面板 |
+
+**快捷选择（UpperList 区域）：**
+
+CubeManagerUI 在 `Start()` 时自动绑定 UpperList 中的现有控件：
+
+| 控件 | 路径 | 功能 |
+|------|------|------|
+| CubeID 输入框 | `UpperList > TmpDataChanger > CubeID` | 输入方体 ID 回车选中方体 |
+| Surface 面按钮 | `UpperList > Surface` | 6个按钮（Up/Down/Left/Right/Front/Back），选中对应面 |
+| Side 方向按钮 | `UpperList > Side` | 4个按钮（Up/Down/Left/Right），选中对应方向 |
+
+### 轨道切换机制
+
+24条轨道（6面 × 4方向）独立存储 Note 数据。切换面或方向时：
+
+1. **切换前**：`SaveCurrentNotesToCubeTrack()` 将左侧当前显示的 Note 保存到旧轨道（保留原始 lane 值）
+2. **切换后**：`LoadActiveTrackNotes()` 从新轨道读取 Note 并重新加载到左侧显示
+
+按钮高亮采用单选样式：同一按钮组内仅选中项标黄（`#FFEB4B`），其余恢复白色。
+
+| 按钮组 | 高亮颜色 | 默认选中 |
+|--------|----------|----------|
+| Surface（6面） | `(1, 0.92, 0.3, 1)` 黄色 | Front |
+| Side（4方向） | `(1, 0.92, 0.3, 1)` 黄色 | Up |
 
 ## 第三方依赖
 

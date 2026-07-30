@@ -68,6 +68,8 @@ public class InfoManagerUI : MonoBehaviour
         public ChartJsonInfo info;
         public List<BpmJsonNode> bpmNodes;
         public List<NoteJsonNode> notes;
+        // 保留 cubes 字段，避免 Info 保存时丢失 CubeManager 写入的方体数据
+        public List<CubeData> cubes;
     }
 
     #endregion

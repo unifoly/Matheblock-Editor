@@ -79,6 +79,9 @@ public class NotePlacementManager : MonoBehaviour
     // 标记是否已从 JSON 加载过 Note（仅加载一次）
     private bool m_notesLoaded;
 
+    // 待加载的方体轨道 Note（m_noteLayer 尚未就绪时暂存）
+    private List<NoteJsonNode> m_pendingReloadNotes;
+
     // Note 数据结构
     private class NoteEntry
     {
@@ -114,6 +117,8 @@ public class NotePlacementManager : MonoBehaviour
         public ChartJsonInfo info;
         public List<BpmJsonNode> bpmNodes;
         public List<NoteJsonNode> notes;
+        // 保留 cubes 字段，避免 Note 保存时丢失 CubeManager 写入的方体数据
+        public List<CubeData> cubes;
     }
 
     private void Start()
@@ -194,7 +199,17 @@ public class NotePlacementManager : MonoBehaviour
         if (!m_notesLoaded && m_noteLayer != null)
         {
             m_notesLoaded = true;
-            LoadNotesFromJson();
+
+            if (m_pendingReloadNotes != null)
+            {
+                // 方体系统已提供待加载的 Note，优先使用（不加载 flat notes 数组）
+                DoReloadNotes(m_pendingReloadNotes);
+                m_pendingReloadNotes = null;
+            }
+            else
+            {
+                LoadNotesFromJson();
+            }
         }
 
         UpdateHover();
@@ -450,6 +465,78 @@ public class NotePlacementManager : MonoBehaviour
                 m_notes[i].View.SetActive(false);
                 m_notes.RemoveAt(i);
                 return;
+            }
+        }
+    }
+
+    /// <summary>
+    /// 清除所有已放置的 Note（视觉对象归还对象池，数据列表清空）
+    /// </summary>
+    public void ClearAllNotes()
+    {
+        foreach (var note in m_notes)
+        {
+            if (note.View != null)
+            {
+                note.View.SetActive(false);
+            }
+        }
+
+        m_notes.Clear();
+    }
+
+    /// <summary>
+    /// 获取当前所有已放置 Note 的数据副本（供方体系统保存到轨道）
+    /// </summary>
+    public List<NoteJsonNode> GetCurrentNotes()
+    {
+        var result = new List<NoteJsonNode>(m_notes.Count);
+        foreach (var note in m_notes)
+        {
+            result.Add(new NoteJsonNode
+            {
+                type = note.Type.ToString(),
+                lane = note.Lane,
+                time = Mathf.Round(note.Time * 100f) / 100f
+            });
+        }
+        return result;
+    }
+
+    /// <summary>
+    /// 清除现有 Note 并从指定列表重新加载（用于方体/轨道组切换）
+    /// </summary>
+    public void ReloadNotes(List<NoteJsonNode> notes)
+    {
+        ClearAllNotes();
+
+        // m_noteLayer 尚未就绪：暂存待加载，等 Update 中 EnsureNoteLayer 完成后自动加载
+        if (m_noteLayer == null)
+        {
+            m_pendingReloadNotes = notes;
+            return;
+        }
+
+        // 标记已加载，防止 Update 中的 LoadNotesFromJson 用 flat notes 数组覆盖方体轨道数据
+        m_notesLoaded = true;
+        DoReloadNotes(notes);
+    }
+
+    /// <summary>
+    /// 实际执行 Note 列表加载（内部方法，确保 m_noteLayer 和 m_gridManager 已就绪）
+    /// </summary>
+    private void DoReloadNotes(List<NoteJsonNode> notes)
+    {
+        if (notes == null) return;
+
+        CacheGridManager();
+        if (m_gridManager == null) return;
+
+        foreach (var node in notes)
+        {
+            if (Enum.TryParse<NoteType>(node.type, out NoteType type))
+            {
+                CreateNoteView(type, node.lane, node.time);
             }
         }
     }

@@ -149,6 +149,8 @@ public class BpmManagerUI : MonoBehaviour
         public List<BpmJsonNode> bpmNodes;
         // 保留 notes 字段，避免 BPM 保存时丢失 NotePlacementManager 写入的数据
         public List<NoteJsonNode> notes;
+        // 保留 cubes 字段，避免 BPM 保存时丢失 CubeManager 写入的方体数据
+        public List<CubeData> cubes;
     }
 
     private void Awake()

@@ -61,14 +61,21 @@ public class GridScrollHandler : MonoBehaviour, IScrollHandler, IEventSystemHand
     {
         if (m_gridManager == null) return;
 
-        // 键盘滚动（持续按住）+ 滚轮滚动（如果绑定的是滚轮，IsHeld 会检测 GetAxis）
-        if (m_scrollUpCombo.IsHeld())
+        // 鼠标在右半缓动区内时，滚轮交给 OnScroll 处理水平滚动，不触发垂直滚动
+        bool mouseInEasing = m_scrollUpCombo.IsWheel || m_scrollDownCombo.IsWheel
+                              ? IsMouseInEasingArea(Input.mousePosition)
+                              : false;
+
+        if (!mouseInEasing)
         {
-            m_gridManager.HandleScroll(-0.1f);
-        }
-        if (m_scrollDownCombo.IsHeld())
-        {
-            m_gridManager.HandleScroll(0.1f);
+            if (m_scrollUpCombo.IsHeld())
+            {
+                m_gridManager.HandleScroll(-0.8f);
+            }
+            if (m_scrollDownCombo.IsHeld())
+            {
+                m_gridManager.HandleScroll(0.8f);
+            }
         }
 
         // 键盘缩放 + 滚轮缩放

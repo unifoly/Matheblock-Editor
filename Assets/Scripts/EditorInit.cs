@@ -106,10 +106,22 @@ public class EditorInit : MonoBehaviour
             playScreen.AddComponent<NotePlacementManager>();
         }
 
-        // 右半缓动函数区管理器：14 条竖线 + 水平滚动
+        // 右半缓动函数区管理器：15 条竖线数据槽 + 锚点编辑 + 曲线可视化 + 水平滚动
         if (playScreen.GetComponent<EasingAreaManager>() == null)
         {
             playScreen.AddComponent<EasingAreaManager>();
+        }
+
+        // 锚点编辑面板 UI：选中锚点后在 FunctionChanger 位置弹出编辑面板
+        if (playScreen.GetComponent<AnchorPointEditorUI>() == null)
+        {
+            playScreen.AddComponent<AnchorPointEditorUI>();
+        }
+
+        // 放映模式控制器：播放时淡出网格、DOTween 驱动 Note 下落
+        if (playScreen.GetComponent<PlaybackModeController>() == null)
+        {
+            playScreen.AddComponent<PlaybackModeController>();
         }
     }
 
@@ -152,8 +164,58 @@ public class EditorInit : MonoBehaviour
         var illustrationPath = Path.Combine(m_infoDir, "illustration.png");
         var tex = m_imageTypeManager.GetTextureByString(
             m_imageTypeManager.SetImageToString(illustrationPath));
-        GameObject.Find("PlayScreen").GetComponent<Image>().sprite = 
-            Sprite.Create(tex, new Rect(0, 0, tex.width, tex.height), new Vector2(0.5f, 0.5f));
+
+        // 预模糊曲绘纹理，替代场景中的 GrabPass Blur shader
+        var blurredTex = CreateBlurredTexture(tex);
+        GameObject.Find("PlayScreen").GetComponent<Image>().sprite =
+            Sprite.Create(blurredTex, new Rect(0, 0, blurredTex.width, blurredTex.height), new Vector2(0.5f, 0.5f));
+
+        // 禁用场景中的 Blur GameObject（已由预模糊纹理替代）
+        var blurObj = GameObject.Find("PlayScreen")?.transform.Find("Blur");
+        if (blurObj != null)
+        {
+            blurObj.gameObject.SetActive(false);
+            Debug.Log($"[{GetType().Name}] 已禁用 Blur GameObject（改用预模糊曲绘）");
+        }
+    }
+
+    /// <summary>
+    /// 使用双 Pass 高斯模糊 shader 预模糊纹理，替代 GrabPass Blur。
+    /// </summary>
+    private static Texture2D CreateBlurredTexture(Texture2D source)
+    {
+        if (source == null) return null;
+
+        var blurShader = Shader.Find("Hidden/GaussianBlur");
+        if (blurShader == null)
+        {
+            Debug.LogWarning("[EditorInit] 未找到 Hidden/GaussianBlur shader，返回原图");
+            return source;
+        }
+
+        var blurMat = new Material(blurShader);
+        blurMat.SetFloat("_BlurSize", 2.0f);
+
+        // 双 Pass 高斯模糊：水平 -> 垂直
+        var rt1 = RenderTexture.GetTemporary(source.width, source.height, 0);
+        var rt2 = RenderTexture.GetTemporary(source.width, source.height, 0);
+
+        Graphics.Blit(source, rt1, blurMat, 0); // Pass 0: 水平
+        Graphics.Blit(rt1, rt2, blurMat, 1);    // Pass 1: 垂直
+
+        // 读回为 Texture2D
+        var prevActive = RenderTexture.active;
+        RenderTexture.active = rt2;
+        var blurred = new Texture2D(source.width, source.height, TextureFormat.RGBA32, false);
+        blurred.ReadPixels(new Rect(0, 0, source.width, source.height), 0, 0);
+        blurred.Apply();
+        RenderTexture.active = prevActive;
+
+        RenderTexture.ReleaseTemporary(rt1);
+        RenderTexture.ReleaseTemporary(rt2);
+        Destroy(blurMat);
+
+        return blurred;
     }
 
     private IEnumerator LoadAudioClip()

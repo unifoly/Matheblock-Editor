@@ -1,0 +1,215 @@
+using System;
+using System.Collections.Generic;
+using UnityEngine;
+using DG.Tweening;
+
+/// <summary>
+/// 缓动显示名称与 DOTween Ease 枚举的映射工具。
+/// 过滤掉 Unset / Flash / INTERNAL 等非标准类型，仅保留 31 种常用缓动。
+/// </summary>
+public static class EaseDisplayNames
+{
+    /// <summary>可用于下拉菜单的 Ease 值（按展示顺序排列）</summary>
+    public static readonly Ease[] UsableEases =
+    {
+        Ease.Linear,
+        Ease.InSine, Ease.OutSine, Ease.InOutSine,
+        Ease.InQuad, Ease.OutQuad, Ease.InOutQuad,
+        Ease.InCubic, Ease.OutCubic, Ease.InOutCubic,
+        Ease.InQuart, Ease.OutQuart, Ease.InOutQuart,
+        Ease.InQuint, Ease.OutQuint, Ease.InOutQuint,
+        Ease.InExpo, Ease.OutExpo, Ease.InOutExpo,
+        Ease.InCirc, Ease.OutCirc, Ease.InOutCirc,
+        Ease.InElastic, Ease.OutElastic, Ease.InOutElastic,
+        Ease.InBack, Ease.OutBack, Ease.InOutBack,
+        Ease.InBounce, Ease.OutBounce, Ease.InOutBounce
+    };
+
+    private static readonly string[] k_names =
+    {
+        "Linear",
+        "Ease In Sine", "Ease Out Sine", "Ease InOut Sine",
+        "Ease In Quad", "Ease Out Quad", "Ease InOut Quad",
+        "Ease In Cubic", "Ease Out Cubic", "Ease InOut Cubic",
+        "Ease In Quart", "Ease Out Quart", "Ease InOut Quart",
+        "Ease In Quint", "Ease Out Quint", "Ease InOut Quint",
+        "Ease In Expo", "Ease Out Expo", "Ease InOut Expo",
+        "Ease In Circ", "Ease Out Circ", "Ease InOut Circ",
+        "Ease In Elastic", "Ease Out Elastic", "Ease InOut Elastic",
+        "Ease In Back", "Ease Out Back", "Ease InOut Back",
+        "Ease In Bounce", "Ease Out Bounce", "Ease InOut Bounce"
+    };
+
+    /// <summary>所有缓动类型显示名称</summary>
+    public static string[] AllNames => k_names;
+
+    /// <summary>根据 Ease 获取显示名称</summary>
+    public static string GetName(Ease ease)
+    {
+        int idx = Array.IndexOf(UsableEases, ease);
+        return idx >= 0 ? k_names[idx] : ease.ToString();
+    }
+
+    /// <summary>根据下拉菜单索引获取 Ease 值</summary>
+    public static Ease GetEaseAt(int index)
+    {
+        return (index >= 0 && index < UsableEases.Length) ? UsableEases[index] : Ease.Linear;
+    }
+
+    /// <summary>根据 Ease 值获取下拉菜单索引</summary>
+    public static int GetIndex(Ease ease)
+    {
+        return Array.IndexOf(UsableEases, ease);
+    }
+}
+
+/// <summary>
+/// 锚点（关键帧）：在特定时间点记录一个数值，并定义到下一个锚点的缓动方式。
+/// 缓动类型使用 DOTween 的 Ease 枚举，求值通过 DOVirtual.EasedValue 实现。
+/// </summary>
+[Serializable]
+public class AnchorPoint
+{
+    /// <summary>时间位置（秒）</summary>
+    public float time;
+
+    /// <summary>数值</summary>
+    public float value;
+
+    /// <summary>从此锚点到下一个锚点的缓动类型（DOTween Ease）</summary>
+    public Ease easingType = Ease.Linear;
+
+    /// <summary>缓动权重 (0=线性, 1=完整缓动, 可超过1增强效果)</summary>
+    public float weight = 1f;
+
+    public AnchorPoint() { }
+
+    public AnchorPoint(float time, float value, Ease easingType = Ease.Linear, float weight = 1f)
+    {
+        this.time = time;
+        this.value = value;
+        this.easingType = easingType;
+        this.weight = weight;
+    }
+
+    public AnchorPoint Clone()
+    {
+        return new AnchorPoint(time, value, easingType, weight);
+    }
+}
+
+/// <summary>
+/// 单个数据槽的缓动数据：包含锚点列表及槽位配置（默认值/最小值/最大值）。
+/// </summary>
+[Serializable]
+public class EasingSlotData
+{
+    /// <summary>锚点列表（按时间升序排列）</summary>
+    public List<AnchorPoint> anchorPoints = new List<AnchorPoint>();
+
+    /// <summary>
+    /// 在指定时间点根据锚点和缓动函数插值求值。
+    /// 无锚点时返回默认值；时间在首尾锚点之外时返回边界值。
+    /// 使用 DOTween 的 DOVirtual.EasedValue 进行缓动插值。
+    /// </summary>
+    public float EvaluateAt(float time, float defaultValue, EasingSlotConfig config)
+    {
+        if (anchorPoints == null || anchorPoints.Count == 0)
+        {
+            return defaultValue;
+        }
+
+        // 时间在第一个锚点之前：返回第一个锚点的值
+        if (time <= anchorPoints[0].time)
+        {
+            return anchorPoints[0].value;
+        }
+
+        // 时间在最后一个锚点之后：返回最后一个锚点的值
+        int last = anchorPoints.Count - 1;
+        if (time >= anchorPoints[last].time)
+        {
+            return anchorPoints[last].value;
+        }
+
+        // 查找所在的区间
+        for (int i = 0; i < last; i++)
+        {
+            AnchorPoint curr = anchorPoints[i];
+            AnchorPoint next = anchorPoints[i + 1];
+
+            if (time >= curr.time && time <= next.time)
+            {
+                float duration = next.time - curr.time;
+                if (duration <= 0f) return curr.value;
+
+                float t = (time - curr.time) / duration;
+                // 权重混合：weight=0 时线性，weight=1 时完整缓动
+                float easedT = DOVirtual.EasedValue(0f, 1f, t, curr.easingType);
+                float weightedT = Mathf.Lerp(t, easedT, curr.weight);
+                return Mathf.Lerp(curr.value, next.value, weightedT);
+            }
+        }
+
+        return defaultValue;
+    }
+}
+
+/// <summary>
+/// 数据槽配置：默认值、最小值、最大值
+/// </summary>
+[Serializable]
+public struct EasingSlotConfig
+{
+    public float defaultValue;
+    public float minValue;
+    public float maxValue;
+
+    public EasingSlotConfig(float defaultValue, float minValue, float maxValue)
+    {
+        this.defaultValue = defaultValue;
+        this.minValue = minValue;
+        this.maxValue = maxValue;
+    }
+}
+
+/// <summary>
+/// 15 个数据槽的配置常量，顺序与 k_slotLabels 一致。
+/// lx/ly/lz=长宽高, rx/ry/rz=倾斜角, px/py/pz=位置, R/G/B/A=颜色, 棱偏移, 流速
+/// </summary>
+public static class EasingSlotConfigs
+{
+    /// <summary>15 个数据槽的配置</summary>
+    public static readonly EasingSlotConfig[] Slots =
+    {
+        // lx, ly, lz - 方体长宽高
+        new EasingSlotConfig(1f, 0f, 10f),
+        new EasingSlotConfig(1f, 0f, 10f),
+        new EasingSlotConfig(1f, 0f, 10f),
+
+        // rx, ry, rz - 方体倾斜角（度）
+        new EasingSlotConfig(0f, -360f, 360f),
+        new EasingSlotConfig(0f, -360f, 360f),
+        new EasingSlotConfig(0f, -360f, 360f),
+
+        // px, py, pz - 方体位置
+        new EasingSlotConfig(0f, -10f, 10f),
+        new EasingSlotConfig(0f, -10f, 10f),
+        new EasingSlotConfig(0f, -10f, 10f),
+
+        // R, G, B, A - 方体颜色
+        new EasingSlotConfig(0.9f, 0f, 1f),
+        new EasingSlotConfig(0.9f, 0f, 1f),
+        new EasingSlotConfig(0.9f, 0f, 1f),
+        new EasingSlotConfig(1f, 0f, 1f),
+
+        // 棱偏移
+        new EasingSlotConfig(0f, -1f, 1f),
+
+        // 流速
+        new EasingSlotConfig(1f, 0f, 10f)
+    };
+
+    /// <summary>数据槽数量</summary>
+    public const int SlotCount = 15;
+}

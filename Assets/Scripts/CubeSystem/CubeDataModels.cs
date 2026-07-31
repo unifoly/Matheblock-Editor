@@ -23,6 +23,7 @@ public class CubeNoteData
 /// <summary>
 /// 单条 note 轨道数据，由面+方向唯一标识。
 /// 每个方体包含 24 条轨道（6面 × 4方向）。
+/// 每条轨道拥有独立的轨道级缓动槽（棱偏移、流速）。
 /// </summary>
 [Serializable]
 public class CubeNoteTrackData
@@ -35,6 +36,27 @@ public class CubeNoteTrackData
 
     /// <summary>该轨道内的 Note 列表</summary>
     public List<CubeNoteData> notes = new List<CubeNoteData>();
+
+    /// <summary>
+    /// 轨道级缓动数据槽（棱偏移、流速），每条轨道各自独立。
+    /// 索引顺序对应 EasingSlotConfigs.Slots[CubeSlotCount..]。
+    /// </summary>
+    public List<EasingSlotData> easingSlots = new List<EasingSlotData>();
+
+    /// <summary>
+    /// 初始化轨道级缓动槽（2个），每个在 time=0 处放置固定锚点。
+    /// </summary>
+    public void InitializeDefaultTrackEasingSlots()
+    {
+        easingSlots.Clear();
+        for (int i = 0; i < EasingSlotConfigs.TrackSlotCount; i++)
+        {
+            var slotData = new EasingSlotData();
+            var config = EasingSlotConfigs.Slots[EasingSlotConfigs.CubeSlotCount + i];
+            slotData.anchorPoints.Add(new AnchorPoint(0f, config.defaultValue));
+            easingSlots.Add(slotData);
+        }
+    }
 
     /// <summary>
     /// 生成轨道的唯一标识键 "Face_Direction"（如 "Up_Left"）
@@ -60,14 +82,14 @@ public class CubeData
     /// <summary>方体备注（用户自定义描述）</summary>
     public string cubeNote = "";
 
-    // ---- 方体视觉/物理属性（对应右侧 15 个数据槽）----
+    // ---- 方体视觉/物理属性（前 13 个为方体级，棱偏移/流速为轨道级）----
 
-    /// <summary>方体长宽高 length_xyz：lx</summary>
-    public float lengthX = 1f;
-    /// <summary>方体长宽高 length_xyz：ly</summary>
-    public float lengthY = 1f;
-    /// <summary>方体长宽高 length_xyz：lz</summary>
-    public float lengthZ = 1f;
+    /// <summary>方体长宽高 length_xyz：lx（百分比，100=原始大小）</summary>
+    public float lengthX = 100f;
+    /// <summary>方体长宽高 length_xyz：ly（百分比，100=原始大小）</summary>
+    public float lengthY = 100f;
+    /// <summary>方体长宽高 length_xyz：lz（百分比，100=原始大小）</summary>
+    public float lengthZ = 100f;
 
     /// <summary>方体倾斜角 rotation_xyz：rx（度）</summary>
     public float rotationX = 0f;
@@ -76,11 +98,11 @@ public class CubeData
     /// <summary>方体倾斜角 rotation_xyz：rz（度）</summary>
     public float rotationZ = 0f;
 
-    /// <summary>方体位置 position_xyz：px</summary>
+    /// <summary>方体位置 position_xyz：px（0=屏幕中心）</summary>
     public float positionX = 0f;
-    /// <summary>方体位置 position_xyz：py</summary>
+    /// <summary>方体位置 position_xyz：py（0=屏幕中心）</summary>
     public float positionY = 0f;
-    /// <summary>方体位置 position_xyz：pz</summary>
+    /// <summary>方体位置 position_xyz：pz（0=摄像机平面）</summary>
     public float positionZ = 0f;
 
     /// <summary>方体颜色 RGBA：R (0-1)</summary>
@@ -96,11 +118,11 @@ public class CubeData
     public float edgeOffset = 0f;
 
     /// <summary>流速：note 下落速度倍率</summary>
-    public float flowSpeed = 1f;
+    public float flowSpeed = 30f;
 
     /// <summary>
-    /// 15 个数据槽的缓动数据，对应右侧缓动区的锚点编辑。
-    /// 索引顺序：lx/ly/lz, rx/ry/rz, px/py/pz, R/G/B/A, 棱偏移, 流速
+    /// 方体级缓动数据槽（lx/ly/lz, rx/ry/rz, px/py/pz, R/G/B/A，共13个）。
+    /// 棱偏移和流速属于轨道级，存储在各 CubeNoteTrackData.easingSlots 中。
     /// </summary>
     public List<EasingSlotData> easingSlots = new List<EasingSlotData>();
 
@@ -119,25 +141,31 @@ public class CubeData
         {
             foreach (FaceDirection dir in Enum.GetValues(typeof(FaceDirection)))
             {
-                tracks.Add(new CubeNoteTrackData
+                var track = new CubeNoteTrackData
                 {
                     face = face.ToString(),
                     direction = dir.ToString(),
                     notes = new List<CubeNoteData>()
-                });
+                };
+                track.InitializeDefaultTrackEasingSlots();
+                tracks.Add(track);
             }
         }
     }
 
     /// <summary>
-    /// 初始化 15 个空缓动数据槽（无锚点，使用默认值）
+    /// 初始化 13 个方体级缓动数据槽，每个槽在 time=0 处放置一个不可删除的固定锚点，
+    /// 锚点值为该槽的默认初始值。
     /// </summary>
     public void InitializeDefaultEasingSlots()
     {
         easingSlots.Clear();
-        for (int i = 0; i < EasingSlotConfigs.SlotCount; i++)
+        for (int i = 0; i < EasingSlotConfigs.CubeSlotCount; i++)
         {
-            easingSlots.Add(new EasingSlotData());
+            var slotData = new EasingSlotData();
+            var config = EasingSlotConfigs.Slots[i];
+            slotData.anchorPoints.Add(new AnchorPoint(0f, config.defaultValue));
+            easingSlots.Add(slotData);
         }
     }
 

@@ -1,9 +1,11 @@
 using System;
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.SceneManagement;
 using UnityEngine.UI;
 using TMPro;
 using DG.Tweening;
+using HexMap;
 
 /// <summary>
 /// 右半缓动函数区管理器：15 条竖线数据槽，每条对应一个方体属性。
@@ -32,6 +34,9 @@ public class EasingAreaManager : MonoBehaviour
     private const float k_clickThreshold = 6f;
     // ---- 锚点命中检测半径（像素） ----
     private const float k_anchorHitRadius = 14f;
+
+    // 锚点删除快捷键的 Action 名（与 Settings 页面中一致，用于 KeyBindingsStore 持久化）
+    private const string k_actionDelete = "Anchor_Delete";
 
     [Header("缓动区设置")]
     [Tooltip("竖线数量（数据槽数量）")]
@@ -93,6 +98,10 @@ public class EasingAreaManager : MonoBehaviour
     private int m_selectedSlot = -1;
     private int m_selectedAnchorIndex = -1;
 
+    // ---- 锚点删除快捷键 ----
+    private KeyCombo m_deleteCombo;
+    private bool m_deleteComboLoaded;
+
     // ---- 水平拖拽滚动状态 ----
     private bool m_isDragging;
     private bool m_isPotentialClick;
@@ -122,20 +131,51 @@ public class EasingAreaManager : MonoBehaviour
     }
 
     private bool m_cubeEventSubscribed;
+    private bool m_trackEventSubscribed;
 
     private void OnEnable()
     {
         CacheCubeManager();
         TrySubscribeCubeEvent();
+        SceneManager.sceneUnloaded += OnSceneUnloaded;
     }
 
     private void OnDisable()
     {
-        if (m_cubeManager != null && m_cubeEventSubscribed)
+        if (m_cubeManager != null)
         {
-            m_cubeManager.ActiveCubeChanged -= OnCubeChanged;
-            m_cubeEventSubscribed = false;
+            if (m_cubeEventSubscribed)
+            {
+                m_cubeManager.ActiveCubeChanged -= OnCubeChanged;
+                m_cubeEventSubscribed = false;
+            }
+            if (m_trackEventSubscribed)
+            {
+                m_cubeManager.ActiveTrackChanged -= OnTrackChanged;
+                m_trackEventSubscribed = false;
+            }
         }
+        SceneManager.sceneUnloaded -= OnSceneUnloaded;
+    }
+
+    /// <summary>
+    /// Setting 场景关闭后重新加载快捷键（用户可能修改了绑定）
+    /// </summary>
+    private void OnSceneUnloaded(Scene scene)
+    {
+        if (scene.name == "Setting")
+        {
+            LoadShortcuts();
+        }
+    }
+
+    /// <summary>
+    /// 从 KeyBindingsStore 加载快捷键绑定
+    /// </summary>
+    private void LoadShortcuts()
+    {
+        m_deleteCombo = KeyBindingsStore.GetKeyCombo(k_actionDelete, KeyCombo.Parse("Delete"));
+        m_deleteComboLoaded = true;
     }
 
     private void Update()
@@ -148,6 +188,7 @@ public class EasingAreaManager : MonoBehaviour
         // 首帧 CubeManager 就绪后重建锚点（显示已加载的数据）
         if (m_needInitialRebuild && m_cubeManager != null)
         {
+            EnsureDefaultAnchors();
             RebuildAnchorMarkers();
             m_needInitialRebuild = false;
         }
@@ -155,6 +196,26 @@ public class EasingAreaManager : MonoBehaviour
         UpdateMaxScroll();
         HandleMouseInteraction();
         UpdateAnchorVisuals();
+        HandleKeyboardShortcuts();
+    }
+
+    /// <summary>
+    /// 处理键盘快捷键：Delete 删除选中的锚点。
+    /// 文本输入框获焦时跳过，避免与文本编辑冲突。
+    /// </summary>
+    private void HandleKeyboardShortcuts()
+    {
+        if (!m_deleteComboLoaded)
+        {
+            LoadShortcuts();
+        }
+
+        if (UndoRedoManager.IsTextInputFocused()) return;
+
+        if (m_deleteCombo.IsPressed() && HasSelection)
+        {
+            DeleteSelectedAnchor();
+        }
     }
 
     /// <summary>
@@ -162,10 +223,18 @@ public class EasingAreaManager : MonoBehaviour
     /// </summary>
     private void TrySubscribeCubeEvent()
     {
-        if (m_cubeManager != null && !m_cubeEventSubscribed)
+        if (m_cubeManager != null)
         {
-            m_cubeManager.ActiveCubeChanged += OnCubeChanged;
-            m_cubeEventSubscribed = true;
+            if (!m_cubeEventSubscribed)
+            {
+                m_cubeManager.ActiveCubeChanged += OnCubeChanged;
+                m_cubeEventSubscribed = true;
+            }
+            if (!m_trackEventSubscribed)
+            {
+                m_cubeManager.ActiveTrackChanged += OnTrackChanged;
+                m_trackEventSubscribed = true;
+            }
         }
     }
 
@@ -505,7 +574,7 @@ public class EasingAreaManager : MonoBehaviour
     #region 锚点管理
 
     /// <summary>
-    /// 添加新锚点
+    /// 添加新锚点，注册撤回/重做
     /// </summary>
     private void AddAnchorPoint(int slot, float time)
     {
@@ -518,24 +587,29 @@ public class EasingAreaManager : MonoBehaviour
 
         var anchor = new AnchorPoint(time, value, Ease.Linear);
 
-        // 按时间升序插入
-        int insertIndex = 0;
-        for (int i = 0; i < slotData.anchorPoints.Count; i++)
-        {
-            if (slotData.anchorPoints[i].time < time)
-            {
-                insertIndex = i + 1;
-            }
-            else
-            {
-                break;
-            }
-        }
-        slotData.anchorPoints.Insert(insertIndex, anchor);
+        int insertIndex = InsertAnchorByTime(slot, anchor);
 
         SaveCubeData();
         RebuildAnchorMarkers();
         SelectAnchorPoint(slot, insertIndex);
+
+        // 记录到全局撤回/重做系统
+        var anchorClone = anchor.Clone();
+        UndoRedoManager.Execute(
+            undo: () =>
+            {
+                RemoveAnchorAtTime(slot, time);
+                SaveCubeData();
+                RebuildAnchorMarkers();
+                DeselectAnchor();
+            },
+            redo: () =>
+            {
+                int idx = InsertAnchorByTime(slot, anchorClone.Clone());
+                SaveCubeData();
+                RebuildAnchorMarkers();
+                SelectAnchorPoint(slot, idx);
+            });
 
         Debug.Log($"[{GetType().Name}] 添加锚点: 槽{slot} 时间{time:F2}s 值{value:F2}");
     }
@@ -564,12 +638,18 @@ public class EasingAreaManager : MonoBehaviour
     }
 
     /// <summary>
-    /// 删除指定锚点
+    /// 删除指定锚点，注册撤回/重做。time=0 处的固定锚点不可删除。
     /// </summary>
     public void DeleteAnchor(int slot, int anchorIndex)
     {
         EasingSlotData slotData = GetSlotData(slot);
         if (slotData == null || anchorIndex < 0 || anchorIndex >= slotData.anchorPoints.Count) return;
+
+        // 不允许删除 time=0 的固定锚点
+        if (Mathf.Approximately(slotData.anchorPoints[anchorIndex].time, 0f)) return;
+
+        // 捕获被删除的锚点数据，用于撤回时恢复
+        var deletedAnchor = slotData.anchorPoints[anchorIndex].Clone();
 
         slotData.anchorPoints.RemoveAt(anchorIndex);
         SaveCubeData();
@@ -584,6 +664,23 @@ public class EasingAreaManager : MonoBehaviour
         }
 
         RebuildAnchorMarkers();
+
+        // 记录到全局撤回/重做系统
+        UndoRedoManager.Execute(
+            undo: () =>
+            {
+                int idx = InsertAnchorByTime(slot, deletedAnchor.Clone());
+                SaveCubeData();
+                RebuildAnchorMarkers();
+                SelectAnchorPoint(slot, idx);
+            },
+            redo: () =>
+            {
+                RemoveAnchorAtTime(slot, deletedAnchor.time);
+                SaveCubeData();
+                RebuildAnchorMarkers();
+                DeselectAnchor();
+            });
     }
 
     /// <summary>
@@ -593,6 +690,49 @@ public class EasingAreaManager : MonoBehaviour
     {
         if (m_selectedSlot < 0 || m_selectedAnchorIndex < 0) return;
         DeleteAnchor(m_selectedSlot, m_selectedAnchorIndex);
+    }
+
+    /// <summary>
+    /// 按时间升序将锚点插入指定数据槽，返回插入位置的索引。
+    /// 供撤回/重做回调使用，确保插入位置与原始操作一致。
+    /// </summary>
+    private int InsertAnchorByTime(int slot, AnchorPoint anchor)
+    {
+        EasingSlotData slotData = GetOrCreateSlotData(slot);
+        if (slotData == null) return -1;
+
+        int insertIndex = 0;
+        for (int i = 0; i < slotData.anchorPoints.Count; i++)
+        {
+            if (slotData.anchorPoints[i].time < anchor.time)
+            {
+                insertIndex = i + 1;
+            }
+            else
+            {
+                break;
+            }
+        }
+        slotData.anchorPoints.Insert(insertIndex, anchor);
+        return insertIndex;
+    }
+
+    /// <summary>
+    /// 移除指定数据槽中匹配时间的锚点。供撤回/重做回调使用。
+    /// </summary>
+    private void RemoveAnchorAtTime(int slot, float time)
+    {
+        EasingSlotData slotData = GetSlotData(slot);
+        if (slotData == null) return;
+
+        for (int i = 0; i < slotData.anchorPoints.Count; i++)
+        {
+            if (Mathf.Abs(slotData.anchorPoints[i].time - time) < 0.001f)
+            {
+                slotData.anchorPoints.RemoveAt(i);
+                return;
+            }
+        }
     }
 
     /// <summary>
@@ -921,14 +1061,29 @@ public class EasingAreaManager : MonoBehaviour
     #region 数据访问
 
     /// <summary>
-    /// 获取当前活跃方体指定槽的缓动数据
+    /// 获取当前活跃方体指定槽的缓动数据。
+    /// 前 13 个槽（lx~A）为方体级，后 2 个槽（棱偏移、流速）为轨道级，
+    /// 轨道级数据从当前选中面+方向的 CubeNoteTrackData 获取。
     /// </summary>
     private EasingSlotData GetSlotData(int slot)
     {
         if (m_cubeManager == null) return null;
         var cube = m_cubeManager.GetCube(m_cubeManager.ActiveCubeId);
-        if (cube == null || cube.easingSlots == null || slot >= cube.easingSlots.Count) return null;
-        return cube.easingSlots[slot];
+        if (cube == null) return null;
+
+        // 方体级槽（0 ~ CubeSlotCount-1）
+        if (slot < EasingSlotConfigs.CubeSlotCount)
+        {
+            if (cube.easingSlots == null || slot >= cube.easingSlots.Count) return null;
+            return cube.easingSlots[slot];
+        }
+
+        // 轨道级槽（棱偏移、流速）——从当前选中轨道获取
+        var track = cube.GetTrack(m_cubeManager.ActiveFace, m_cubeManager.ActiveDirection);
+        if (track == null || track.easingSlots == null) return null;
+        int trackSlot = slot - EasingSlotConfigs.CubeSlotCount;
+        if (trackSlot >= track.easingSlots.Count) return null;
+        return track.easingSlots[trackSlot];
     }
 
     /// <summary>
@@ -940,13 +1095,102 @@ public class EasingAreaManager : MonoBehaviour
         var cube = m_cubeManager.GetCube(m_cubeManager.ActiveCubeId);
         if (cube == null) return null;
 
-        if (cube.easingSlots == null || cube.easingSlots.Count == 0)
+        // 方体级槽
+        if (slot < EasingSlotConfigs.CubeSlotCount)
         {
-            cube.InitializeDefaultEasingSlots();
+            if (cube.easingSlots == null || cube.easingSlots.Count == 0)
+            {
+                cube.InitializeDefaultEasingSlots();
+            }
+            if (slot >= cube.easingSlots.Count) return null;
+            return cube.easingSlots[slot];
         }
 
-        if (slot >= cube.easingSlots.Count) return null;
-        return cube.easingSlots[slot];
+        // 轨道级槽——确保轨道有缓动数据
+        var track = cube.GetTrack(m_cubeManager.ActiveFace, m_cubeManager.ActiveDirection);
+        if (track == null) return null;
+        if (track.easingSlots == null || track.easingSlots.Count == 0)
+        {
+            track.InitializeDefaultTrackEasingSlots();
+        }
+        int trackSlot = slot - EasingSlotConfigs.CubeSlotCount;
+        if (trackSlot >= track.easingSlots.Count) return null;
+        return track.easingSlots[trackSlot];
+    }
+
+    /// <summary>
+    /// 确保方体级和当前轨道级数据槽在 time=0 处有不可删除的固定锚点（兼容旧数据）。
+    /// 方体级：检查 cube.easingSlots 的前 13 个槽；
+    /// 轨道级：检查当前选中轨道的 2 个槽。
+    /// </summary>
+    private void EnsureDefaultAnchors()
+    {
+        if (m_cubeManager == null) return;
+        var cube = m_cubeManager.GetCube(m_cubeManager.ActiveCubeId);
+        if (cube == null) return;
+
+        bool modified = false;
+
+        // ---- 方体级槽 ----
+        if (cube.easingSlots != null)
+        {
+            // 兼容旧数据：旧版有15个槽，截断到13个（棱偏移/流速已移至轨道级）
+            if (cube.easingSlots.Count > EasingSlotConfigs.CubeSlotCount)
+            {
+                cube.easingSlots.RemoveRange(EasingSlotConfigs.CubeSlotCount,
+                    cube.easingSlots.Count - EasingSlotConfigs.CubeSlotCount);
+                modified = true;
+            }
+            else if (cube.easingSlots.Count < EasingSlotConfigs.CubeSlotCount)
+            {
+                cube.InitializeDefaultEasingSlots();
+                modified = true;
+            }
+            else
+            {
+                for (int i = 0; i < cube.easingSlots.Count; i++)
+                {
+                    var slotData = cube.easingSlots[i];
+                    if (slotData.anchorPoints == null || slotData.anchorPoints.Count == 0 ||
+                        !Mathf.Approximately(slotData.anchorPoints[0].time, 0f))
+                    {
+                        var config = EasingSlotConfigs.Slots[i];
+                        slotData.anchorPoints.Insert(0, new AnchorPoint(0f, config.defaultValue));
+                        modified = true;
+                    }
+                }
+            }
+        }
+
+        // ---- 轨道级槽（当前选中轨道）----
+        var track = cube.GetTrack(m_cubeManager.ActiveFace, m_cubeManager.ActiveDirection);
+        if (track != null)
+        {
+            if (track.easingSlots == null || track.easingSlots.Count != EasingSlotConfigs.TrackSlotCount)
+            {
+                track.InitializeDefaultTrackEasingSlots();
+                modified = true;
+            }
+            else
+            {
+                for (int i = 0; i < track.easingSlots.Count; i++)
+                {
+                    var slotData = track.easingSlots[i];
+                    if (slotData.anchorPoints == null || slotData.anchorPoints.Count == 0 ||
+                        !Mathf.Approximately(slotData.anchorPoints[0].time, 0f))
+                    {
+                        var config = EasingSlotConfigs.Slots[EasingSlotConfigs.CubeSlotCount + i];
+                        slotData.anchorPoints.Insert(0, new AnchorPoint(0f, config.defaultValue));
+                        modified = true;
+                    }
+                }
+            }
+        }
+
+        if (modified)
+        {
+            SaveCubeData();
+        }
     }
 
     /// <summary>
@@ -966,6 +1210,17 @@ public class EasingAreaManager : MonoBehaviour
     private void OnCubeChanged(int cubeId)
     {
         DeselectAnchor();
+        EnsureDefaultAnchors();
+        RebuildAnchorMarkers();
+    }
+
+    /// <summary>
+    /// note 轨道切换时重新加载轨道级锚点（棱偏移、流速）
+    /// </summary>
+    private void OnTrackChanged(CubeFace face, FaceDirection direction)
+    {
+        DeselectAnchor();
+        EnsureDefaultAnchors();
         RebuildAnchorMarkers();
     }
 
@@ -974,14 +1229,30 @@ public class EasingAreaManager : MonoBehaviour
     #region 坐标转换
 
     /// <summary>
-    /// 将数值映射到数据槽内的 X 坐标（EasingContent 本地坐标）
+    /// 将数值映射到数据槽内的 X 坐标（EasingContent 本地坐标）。
+    /// 分段线性映射：以 defaultValue 为中线（normalized=0.5，竖线位置），
+    /// 上半段 [default, max] 映射到 [0.5, 1.0]，下半段 [min, default] 映射到 [0, 0.5]。
     /// </summary>
     private float ValueToSlotX(int slot, float value)
     {
         var config = EasingSlotConfigs.Slots[slot];
-        float normalized = (config.maxValue > config.minValue)
-            ? (value - config.minValue) / (config.maxValue - config.minValue)
-            : 0.5f;
+
+        float upperRange = config.maxValue - config.defaultValue;
+        float lowerRange = config.defaultValue - config.minValue;
+
+        float normalized;
+        if (value >= config.defaultValue)
+        {
+            normalized = (upperRange > 0f)
+                ? 0.5f + (value - config.defaultValue) / upperRange * 0.5f
+                : 0.5f;
+        }
+        else
+        {
+            normalized = (lowerRange > 0f)
+                ? 0.5f - (config.defaultValue - value) / lowerRange * 0.5f
+                : 0.5f;
+        }
         normalized = Mathf.Clamp01(normalized);
 
         float startX = m_lineSpacing * 0.5f;
@@ -992,11 +1263,14 @@ public class EasingAreaManager : MonoBehaviour
     }
 
     /// <summary>
-    /// 将数据槽内的 X 坐标映射回数值
+    /// 将数据槽内的 X 坐标映射回数值（ValueToSlotX 的逆映射，分段线性）
     /// </summary>
     private float SlotXToValue(int slot, float x)
     {
         var config = EasingSlotConfigs.Slots[slot];
+        float upperRange = config.maxValue - config.defaultValue;
+        float lowerRange = config.defaultValue - config.minValue;
+
         float startX = m_lineSpacing * 0.5f;
         float slotCenter = startX + slot * m_lineSpacing;
         float columnWidth = m_lineSpacing * 0.8f;
@@ -1004,7 +1278,18 @@ public class EasingAreaManager : MonoBehaviour
         float normalized = (x - slotCenter) / columnWidth + 0.5f;
         normalized = Mathf.Clamp01(normalized);
 
-        return config.minValue + normalized * (config.maxValue - config.minValue);
+        if (normalized >= 0.5f)
+        {
+            return (upperRange > 0f)
+                ? config.defaultValue + (normalized - 0.5f) * 2f * upperRange
+                : config.defaultValue;
+        }
+        else
+        {
+            return (lowerRange > 0f)
+                ? config.defaultValue - (0.5f - normalized) * 2f * lowerRange
+                : config.defaultValue;
+        }
     }
 
     /// <summary>

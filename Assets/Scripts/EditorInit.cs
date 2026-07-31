@@ -146,16 +146,59 @@ public class EditorInit : MonoBehaviour
 
     private void OnApplicationQuit()
     {
-        if (string.IsNullOrEmpty(m_infoDir))
-        {
-            return;
-        }
+        PersistToChartJson();
 
+        // 清理临时文件
         var tmpPath = Path.Combine(m_infoDir, "chart.tmp");
         if (File.Exists(tmpPath))
         {
             File.Delete(tmpPath);
-            Debug.Log($"[{GetType().Name}] 已清理临时文件: {tmpPath}");
+            Debug.Log($"[{GetType().Name}] 已清理临时文件");
+        }
+    }
+
+    /// <summary>
+    /// 将 chart.tmp 持久化到 chart.json（先确保最新方体数据已写入 tmp）。
+    /// 供 Save 按钮和 OnApplicationQuit 调用。
+    /// </summary>
+    public static void PersistToChartJson()
+    {
+        if (string.IsNullOrEmpty(ChartPath))
+        {
+            Debug.LogWarning("[EditorInit] PersistToChartJson: ChartPath 为空，跳过持久化");
+            return;
+        }
+
+        var tmpPath = Path.Combine(ChartPath, "chart.tmp");
+        var jsonPath = Path.Combine(ChartPath, "chart.json");
+
+        // 确保最新的方体数据已保存到 chart.tmp
+        var cubeManager = UnityEngine.Object.FindObjectOfType<CubeManager>();
+        if (cubeManager != null)
+        {
+            cubeManager.SaveCubesToJson();
+        }
+        else
+        {
+            Debug.LogWarning("[EditorInit] PersistToChartJson: CubeManager 未找到");
+        }
+
+        try
+        {
+            // 将 chart.tmp 持久化到 chart.json
+            if (File.Exists(tmpPath))
+            {
+                File.Copy(tmpPath, jsonPath, overwrite: true);
+                Debug.Log($"[EditorInit] 已持久化到 chart.json");
+            }
+            else
+            {
+                Debug.LogWarning($"[EditorInit] PersistToChartJson: chart.tmp 不存在: {tmpPath}");
+            }
+        }
+        catch (Exception ex)
+        {
+            Debug.LogError($"[EditorInit] 持久化到 chart.json 失败: {ex.Message}");
         }
     }
 

@@ -307,7 +307,8 @@ public class CubeManagerUI : MonoBehaviour
             {
                 type = note.type,
                 lane = note.lane,
-                time = note.time
+                time = note.time,
+                endTime = note.endTime
             });
         }
 
@@ -339,7 +340,8 @@ public class CubeManagerUI : MonoBehaviour
                 {
                     type = note.type,
                     lane = note.lane,
-                    time = note.time
+                    time = note.time,
+                    endTime = note.endTime
                 });
             }
         }

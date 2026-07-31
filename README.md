@@ -495,3 +495,188 @@ CubeManagerUI 在 `Start()` 时自动绑定 UpperList 中的现有控件：
 | Ctrl + 滚轮下 | 缩小 | ✅ (`Editor_ZoomOut`) |
 | Ctrl + E | 打开设置（Editor 模式） | ❌ |
 | Esc | 关闭设置 / 返回 | ❌ |
+
+---
+
+## 3D 方体展示与放映系统
+
+### 渲染管线（CubeCamera + RenderTexture）
+
+方体不再直接渲染在主相机中，而是通过独立的 CubeCamera 渲染到 RenderTexture，再由 RawImage 显示在 PlayScreen 上（曲绘之上、网格之下）：
+
+```
+CubeManager.SetupCubeDisplay()
+├── 创建 RenderTexture（与 PlayScreen 尺寸一致，保证宽高比）
+├── 创建 CubeCamera（正交、SolidColor 透明背景、仅渲染 Layer 8）
+│   └── cullingMask = 1 << k_cubeLayer(8)
+├── 主相机移除 Layer 8（cullingMask &= ~(1 << 8)）
+└── 创建 RawImage "CubeDisplay" 作为 PlayScreen 第一个子物体
+```
+
+| 常量 | 值 | 说明 |
+|------|-----|------|
+| `k_cubeLayer` | 8 | 方体专用渲染层 |
+| `k_cameraOrthoSize` | 0.8 | 正交相机半高（编辑模式） |
+| `k_cameraYOffset` | 0 | 相机 Y 偏移 |
+
+**相机模式切换（`SetPlaybackCameraMode`）**：
+
+| 模式 | 相机位置 | orthoSize |
+|------|----------|-----------|
+| 编辑模式 | `(cubeX, 0, 0)`，顶棱对齐标定线 | 0.8 |
+| 放映模式 | `(cubeX, 0, 0)`，居中正面 | 0.8 |
+
+### 放映模式控制器（`PlaybackModeController`）
+
+挂在 PlayScreen 上，监听 AudioSource 播放状态，控制编辑层淡出与 3D Note 下落。
+
+**模式进出：**
+
+| 事件 | 动作 |
+|------|------|
+| 进入放映（`EnterPlaybackMode`） | 淡出网格 / Note 层 / 缓动区 / 标定线（DOFade 0.4s）；背景与展示区恢复全亮（DOColor 白）；切换相机放映模式 |
+| 退出放映（`ExitPlaybackMode`） | 反向恢复；背景与展示区变暗（`k_dimFactor=0.4`） |
+
+**淡出目标缓存（`CacheFadeTargets`）：**
+- `GridContainerRect` / `NoteLayerRect` → CanvasGroup（无则动态添加）
+- `ReferenceLine` → Graphic
+- `EasingViewport` → CanvasGroup（缓动区整体）
+- PlayScreen 自身 Graphic（背景曲绘）+ `CubeManager.CubeDisplay`（方体 RawImage）
+
+### 3D Note 下落
+
+Note 作为 3D SpriteRenderer 挂载在方体 Transform 下，由 CubeCamera 渲染。
+
+**方向与轨道轴（`GetDirectionVectors`）：**
+
+| FaceDirection | 下落方向 | 轨道轴 |
+|---------------|----------|--------|
+| Up | +Y | X（水平） |
+| Down | -Y | X（水平） |
+| Left | -X | Y（垂直） |
+| Right | +X | Y（垂直） |
+
+**下落轨迹：**
+
+```
+faceCenter = (0, 0, k_noteZOffset)          // 可见面前方 -0.55
+laneOffset = laneAxis * lanePos              // 轨道偏移（-cubeHalf ~ +cubeHalf）
+startPos = faceCenter - fallingDir * startDist + laneOffset
+endPos   = faceCenter + fallingDir * (cubeHalf - edgeHalf) + laneOffset
+```
+
+**离屏起始位置（本次会话新增）：**
+
+Note 从屏幕外开始下落，避免堆积在屏幕边缘。起始距离基于相机视野边界计算：
+
+```
+viewHalfExtent = 垂直下落 ? orthoSize : orthoSize * aspect
+startDist = viewHalfExtent + noteHalf + 0.05f   // 略超视野边界
+```
+
+- 垂直下落（Up/Down）取 `orthoSize`（0.8），水平下落（Left/Right）取 `orthoSize * aspect`（相机 RenderTexture 宽高比）
+- `noteHalf` 由 `k_fixedNoteSize`（0.18）派生，保证离屏边距与 Note 实际尺寸联动
+
+**Note 规格：**
+
+| 项 | 值 |
+|----|-----|
+| 大小 | 固定 0.18 世界单位（`k_fixedNoteSize`），不随轨道数/方体大小变化 |
+| Z 偏移 | `k_noteZOffset = -0.55`（可见面前方） |
+| 下落预览窗口 | `k_lookAhead = 3s` |
+| 命中判定 | 贴图中线到达棱外边缘（`cubeHalf - edgeHalf`）时销毁 |
+
+**生命周期（`UpdatePlaybackNotes`）：**
+1. 时间跳变 > 1s 时清空重建
+2. 距命中 3s 内生成 Note（`m_spawnedKeys` 去重）
+3. 每帧按时间插值 `Lerp(startPos, endPos, progress)`
+4. 命中后 `SetActive(false)` + `Destroy` 清理
+
+### 放映动画驱动（RuntimePlayback）
+
+| 组件 | 职责 |
+|------|------|
+| `ChartPlaybackController` | 从 chart.tmp 加载谱面、发现/注册方体、驱动动画、热重载（文件变更检测） |
+| `CubeAnimator` | 将 13 个方体级缓动槽的值应用到方体 Transform（scale/rotation/position/color） |
+| `EasingEvaluator` | 基于 DOTween Ease 在锚点间插值求值 |
+
+关键实现：`CubeAnimator.Initialize()` 在重复初始化前先 `RestoreOriginal()`，避免缓存动画后的状态作为基准，确保实时预览与放映均按锚点驱动。
+
+---
+
+## 背景高斯模糊
+
+### `GaussianBlur.shader`（Hidden/GaussianBlur）
+
+替代原 GrabPass 模糊方案，采用双 Pass 标准高斯模糊，可与 `Graphics.Blit` 配合使用：
+
+| 项 | 说明 |
+|----|------|
+| Pass 0 | 水平方向模糊（9 权重高斯核，sigma≈4） |
+| Pass 1 | 垂直方向模糊（同核） |
+| 参数 | `_BlurSize`（采样偏移倍数，默认 2.0） |
+
+**9 权重高斯核：**
+
+```
+weights[5] = { 0.227027, 0.1945946, 0.1216216, 0.054054, 0.016216 }
+```
+
+**预模糊流程（`EditorInit.CreateBlurredTexture` / `InfoManagerUI.CreateBlurredTexture`）：**
+
+```
+source → Graphics.Blit(rt1, pass 0) → Graphics.Blit(rt2, pass 1)
+      → ReadPixels 回 Texture2D → 作为背景图 sprite
+```
+
+曲绘在加载时预先完成高斯模糊，运行时不再有 GrabPass 开销，同时避免模糊 shader 误伤方体。
+
+---
+
+## 谱面数据持久化链路
+
+### 双文件工作流
+
+| 文件 | 作用 | 生命周期 |
+|------|------|----------|
+| `chart.json` | 正式谱面文件 | 启动时复制为 tmp，保存时覆写 |
+| `chart.tmp` | 编辑期工作副本 | `EditorInit.Awake` 由 `CopyChartToTemp()` 生成，退出时删除 |
+
+### 统一持久化入口（`EditorInit.PersistToChartJson`）
+
+所有保存路径统一调用：
+
+```csharp
+public static void PersistToChartJson()
+{
+    // 1. CubeManager.SaveCubesToJson() → 内存方体/锚点写入 chart.tmp
+    // 2. File.Copy(chart.tmp, chart.json, overwrite) → 持久化
+}
+```
+
+**调用点：**
+
+| 调用方 | 时机 |
+|--------|------|
+| `InfoManagerUI.HandleSaveButtonClicked` | Info 面板 Save 按钮 |
+| `BpmManagerUI.HandleSaveButtonClicked` | BPM 面板 Save 按钮 |
+| `EditorInit.OnApplicationQuit` | 退出前（先持久化，再清理 tmp） |
+
+> 之前 OnApplicationQuit 直接删除 chart.tmp 导致锚点丢失，已改为先持久化再删除。
+
+### 关键时序约束
+
+1. **启动顺序**：`CubeManager.LoadCubesFromJson()` 必须在 `Start()` 中调用（而非 `Awake`）——确保 `EditorInit.Awake` 已设置 `ChartPath` 并生成 chart.tmp
+2. **`RefreshChartPlayback` 不调用 `SaveCubesToJson`**：启动时内存数据尚未从文件加载，直接保存会用默认数据覆盖用户锚点
+3. **Save 监听器生命周期**：`InfoManagerUI` / `BpmManagerUI` 的 `OnDisable` 不移除 Save 按钮监听器——锚点编辑面板（`AnchorPointEditorUI`）会禁用 FunctionChanger 子物体触发 OnDisable，若移除监听器 Save 按钮将失效；`OnEnable` 中 `RemoveListener + AddListener` 防止重复注册
+4. **懒加载空值防护**：`SaveInfoToJson` 在 Info 面板未打开（输入框未创建）时提前返回，避免 NullReferenceException
+
+### 曾修复的问题（排查记录）
+
+| 问题 | 根因 | 修复 |
+|------|------|------|
+| 锚点保存后丢失 | OnApplicationQuit 删 tmp 未持久化 / 启动时序竞态 | `PersistToChartJson()` 统一入口 + 启动顺序调整 |
+| Save 按钮无响应 | 面板切换触发 OnDisable 移除监听器 | OnDisable 保留 Save 监听器 |
+| Save 报空引用 | 懒加载输入框未初始化 | 空值防护提前返回 |
+| 启动加载失败 | CubeManager.Awake 先于 EditorInit.Awake 执行 | 加载移至 Start |
+| Note 堆积屏幕边缘 | 起始距离小于相机视野 | 基于相机视野边界计算离屏起点 |

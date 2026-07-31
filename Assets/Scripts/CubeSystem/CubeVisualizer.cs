@@ -12,7 +12,10 @@ public class CubeVisualizer : MonoBehaviour
 {
     [Header("棱设置")]
     [Tooltip("棱的粗细（世界单位）")]
-    [SerializeField] private float m_edgeThickness = 0.02f;
+    [SerializeField] private float m_edgeThickness = 0.0133f;
+
+    /// <summary>棱的粗细（世界单位）</summary>
+    public float EdgeThickness => m_edgeThickness;
 
     [Tooltip("棱的颜色（默认不透明白）")]
     [SerializeField] private Color m_edgeColor = new Color(0.9f, 0.9f, 0.9f, 1f);
@@ -36,13 +39,19 @@ public class CubeVisualizer : MonoBehaviour
     /// <summary>所属方体的 CubeId</summary>
     public int CubeId { get; private set; } = -1;
 
+    // 渲染层（由 CubeManager 指定，使 CubeCamera 仅渲染方体）
+    private int m_cubeLayer = 0;
+
     /// <summary>
     /// 初始化可视化器，创建棱和面的 GameObject
     /// </summary>
     /// <param name="cubeId">所属方体 ID</param>
-    public void Initialize(int cubeId)
+    /// <param name="layer">渲染层（CubeCamera 仅渲染此层）</param>
+    public void Initialize(int cubeId, int layer = 0)
     {
         CubeId = cubeId;
+        m_cubeLayer = layer;
+        gameObject.layer = layer;
         CreateMaterials();
         CreateEdges();
         CreateFaces();
@@ -78,6 +87,7 @@ public class CubeVisualizer : MonoBehaviour
     {
         m_edgesContainer = new GameObject("Edges");
         m_edgesContainer.transform.SetParent(transform, false);
+        m_edgesContainer.layer = m_cubeLayer;
 
         float half = m_cubeSize * 0.5f;
         float t = m_edgeThickness;
@@ -125,6 +135,7 @@ public class CubeVisualizer : MonoBehaviour
 
         var edgeGo = GameObject.CreatePrimitive(PrimitiveType.Cube);
         edgeGo.name = $"Edge_{index}";
+        edgeGo.layer = m_cubeLayer;
         edgeGo.transform.SetParent(m_edgesContainer.transform, false);
         edgeGo.transform.localPosition = center;
 
@@ -156,6 +167,7 @@ public class CubeVisualizer : MonoBehaviour
     {
         m_facesContainer = new GameObject("Faces");
         m_facesContainer.transform.SetParent(transform, false);
+        m_facesContainer.layer = m_cubeLayer;
 
         float half = m_cubeSize * 0.5f;
 
@@ -183,6 +195,7 @@ public class CubeVisualizer : MonoBehaviour
     {
         var faceGo = GameObject.CreatePrimitive(PrimitiveType.Quad);
         faceGo.name = $"Face_{config.face}";
+        faceGo.layer = m_cubeLayer;
         faceGo.transform.SetParent(m_facesContainer.transform, false);
         faceGo.transform.localPosition = config.position;
         faceGo.transform.localEulerAngles = config.rotation;

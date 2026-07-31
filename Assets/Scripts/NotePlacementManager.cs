@@ -16,6 +16,8 @@ public class NoteJsonNode
     public string type;
     public int lane;
     public float time;
+    // Hold 类型专用：结束时间（非 Hold 类型为 0）
+    public float endTime;
 }
 
 /// <summary>
@@ -25,13 +27,14 @@ public class NoteJsonNode
 [RequireComponent(typeof(RectTransform))]
 public class NotePlacementManager : MonoBehaviour
 {
-    // Note 类型枚举：Hold 暂不实现
+    // Note 类型枚举
     public enum NoteType
     {
         Click,
         Flick,
         Drag,
-        ReverseFlick
+        ReverseFlick,
+        Hold
     }
 
     [Header("Note 图片")]
@@ -39,8 +42,16 @@ public class NotePlacementManager : MonoBehaviour
     [SerializeField] private Sprite m_clickSprite;
     [Tooltip("Flick 类型图片（快捷键 E）")]
     [SerializeField] private Sprite m_flickSprite;
-    [Tooltip("Drag 类型图片（快捷键 R）")]
+    [Tooltip("Drag 类型图片（快捷键 E）")]
     [SerializeField] private Sprite m_dragSprite;
+
+    [Header("Hold 图片")]
+    [Tooltip("Hold 头部图片（快捷键 W）")]
+    [SerializeField] private Sprite m_holdHeadSprite;
+    [Tooltip("Hold 中间部分图片（自动平铺）")]
+    [SerializeField] private Sprite m_holdMidSprite;
+    [Tooltip("Hold 尾部图片")]
+    [SerializeField] private Sprite m_holdTailSprite;
 
     [Header("Note 显示")]
     [SerializeField] private float m_noteSize = 80f;
@@ -54,9 +65,12 @@ public class NotePlacementManager : MonoBehaviour
     private const string k_actionFlick = "Note_Flick";
     private const string k_actionDrag = "Note_Drag";
     private const string k_actionReverseFlick = "Note_ReverseFlick";
+    private const string k_actionHold = "Note_Hold";
+    private const string k_actionDelete = "Note_Delete";
 
     // 运行时从 KeyBindingsStore 加载的快捷键映射（支持组合键）
     private List<(KeyCombo combo, NoteType type)> m_hotkeyList;
+    private KeyCombo m_deleteCombo;
 
     private GridManager m_gridManager;
     private RectTransform m_playScreenRect;
@@ -79,6 +93,12 @@ public class NotePlacementManager : MonoBehaviour
     // 标记是否已从 JSON 加载过 Note（仅加载一次）
     private bool m_notesLoaded;
 
+    // Hold 放置中间状态：第一次按 W 后等待第二次按 W 确认尾点
+    private bool m_holdPending;
+    private int m_holdPendingLane;
+    private float m_holdPendingTime;
+    private GameObject m_holdPendingView;
+
     // 待加载的方体轨道 Note（m_noteLayer 尚未就绪时暂存）
     private List<NoteJsonNode> m_pendingReloadNotes;
 
@@ -91,6 +111,10 @@ public class NotePlacementManager : MonoBehaviour
         public GameObject View;
         // 放置时缓存的本地 X 坐标，改变竖线数量时不重新计算
         public float CachedLocalX;
+        // Hold 专用：结束时间（非 Hold 为 0）
+        public float EndTime;
+        // Hold 专用：中间和尾部视觉对象（head 在 View 中）
+        public List<GameObject> ExtraViews;
     }
 
     // ---- JSON 序列化用类（与 BpmManagerUI 保持字段一致，额外增加 notes）----
@@ -160,6 +184,10 @@ public class NotePlacementManager : MonoBehaviour
         TryAddHotkey(k_actionFlick, "R", NoteType.Flick);
         TryAddHotkey(k_actionDrag, "E", NoteType.Drag);
         TryAddHotkey(k_actionReverseFlick, "T", NoteType.ReverseFlick);
+        TryAddHotkey(k_actionHold, "W", NoteType.Hold);
+
+        // 删除快捷键（默认 Delete 键）
+        m_deleteCombo = KeyBindingsStore.GetKeyCombo(k_actionDelete, KeyCombo.Parse("Delete"));
     }
 
     private void TryAddHotkey(string actionName, string defaultKey, NoteType type)
@@ -236,12 +264,43 @@ public class NotePlacementManager : MonoBehaviour
             float localY = m_gridManager.TimeToLocalY(note.Time);
 
             // 视口外的 Note 隐藏以节省渲染
-            bool isVisible = localY >= -halfHeight - margin && localY <= halfHeight + margin;
+            float endY = (note.Type == NoteType.Hold) ? m_gridManager.TimeToLocalY(note.EndTime) : localY;
+            bool isVisible = Mathf.Max(localY, endY) >= -halfHeight - margin
+                          && Mathf.Min(localY, endY) <= halfHeight + margin;
+
             note.View.SetActive(isVisible);
 
             if (isVisible)
             {
                 note.View.transform.localPosition = new Vector3(note.CachedLocalX, localY, 0);
+
+                // Hold 中间和尾部也要更新位置
+                if (note.Type == NoteType.Hold && note.ExtraViews != null)
+                {
+                    foreach (var v in note.ExtraViews)
+                    {
+                        if (v == null) continue;
+                        v.SetActive(true);
+                        var img = v.GetComponent<Image>();
+                        // 中间部分：位置在中点（通过 sprite 判断）
+                        if (img != null && img.sprite == m_holdMidSprite)
+                        {
+                            v.transform.localPosition = new Vector3(note.CachedLocalX, (localY + endY) * 0.5f, 0);
+                        }
+                        else
+                        {
+                            // 尾部
+                            v.transform.localPosition = new Vector3(note.CachedLocalX, endY, 0);
+                        }
+                    }
+                }
+            }
+            else if (note.Type == NoteType.Hold && note.ExtraViews != null)
+            {
+                foreach (var v in note.ExtraViews)
+                {
+                    if (v != null) v.SetActive(false);
+                }
             }
         }
     }
@@ -345,13 +404,131 @@ public class NotePlacementManager : MonoBehaviour
     {
         if (!m_isHovering || m_hotkeyList == null) return;
 
+        // 文本输入框获焦时跳过快捷键，避免与文本编辑冲突
+        if (UndoRedoManager.IsTextInputFocused()) return;
+
+        // Esc 取消 Hold 等待状态
+        if (m_holdPending && Input.GetKeyDown(KeyCode.Escape))
+        {
+            CancelHoldPending();
+            return;
+        }
+
+        // Delete 键：删除悬停位置的 Note
+        if (m_deleteCombo.IsPressed())
+        {
+            DeleteNoteAtHover();
+            return;
+        }
+
         foreach (var (combo, type) in m_hotkeyList)
         {
             if (combo.IsPressed())
             {
-                PlaceNote(type, m_hoveredLane, m_hoveredTime);
+                if (type == NoteType.Hold)
+                {
+                    HandleHoldPlacement(m_hoveredLane, m_hoveredTime);
+                }
+                else
+                {
+                    // 切换到其他 Note 类型时取消 Hold 等待
+                    if (m_holdPending) CancelHoldPending();
+                    PlaceNote(type, m_hoveredLane, m_hoveredTime);
+                }
             }
         }
+    }
+
+    /// <summary>
+    /// Hold 两步放置：
+    /// 第一次按 W：在悬停位置生成头部，进入等待状态
+    /// 第二次按 W（同一列）：自动填充中间和尾部，完成 Hold
+    /// </summary>
+    private void HandleHoldPlacement(int lane, float time)
+    {
+        if (!m_holdPending)
+        {
+            // 第一次按 W：记录头部位置，显示临时头部
+            m_holdPending = true;
+            m_holdPendingLane = lane;
+            m_holdPendingTime = time;
+            m_holdPendingView = GetOrCreateNoteView(m_noteLayer);
+            SetupNoteSprite(m_holdPendingView, m_holdHeadSprite);
+            m_holdPendingView.transform.localPosition = new Vector3(
+                m_gridManager.LaneToLocalX(lane),
+                m_gridManager.TimeToLocalY(time),
+                0);
+            Debug.Log($"[NotePlacementManager] Hold 头部待确认: lane={lane} time={time:F2}s，按 W 确认尾点，Esc 取消");
+        }
+        else
+        {
+            // 第二次按 W
+            if (lane != m_holdPendingLane)
+            {
+                // 不同列：取消旧等待，在新位置开始
+                CancelHoldPending();
+                m_holdPending = true;
+                m_holdPendingLane = lane;
+                m_holdPendingTime = time;
+                m_holdPendingView = GetOrCreateNoteView(m_noteLayer);
+                SetupNoteSprite(m_holdPendingView, m_holdHeadSprite);
+                m_holdPendingView.transform.localPosition = new Vector3(
+                    m_gridManager.LaneToLocalX(lane),
+                    m_gridManager.TimeToLocalY(time),
+                    0);
+                Debug.Log($"[NotePlacementManager] Hold 切换到新列: lane={lane} time={time:F2}s");
+                return;
+            }
+
+            // 同列：完成 Hold
+            float startTime = Mathf.Min(m_holdPendingTime, time);
+            float endTime = Mathf.Max(m_holdPendingTime, time);
+
+            // 移除临时头部
+            if (m_holdPendingView != null) m_holdPendingView.SetActive(false);
+            m_holdPending = false;
+
+            // 起止点相同：取消
+            if (Mathf.Approximately(startTime, endTime))
+            {
+                Debug.Log("[NotePlacementManager] Hold 起止点相同，取消放置");
+                return;
+            }
+
+            // 去重检查
+            if (HasNoteAt(lane, startTime))
+            {
+                Debug.Log($"[NotePlacementManager] 格点已存在 Note: lane={lane} time={startTime:F2}s，跳过");
+                return;
+            }
+
+            PlaceHold(lane, startTime, endTime);
+        }
+    }
+
+    /// <summary>
+    /// 取消 Hold 等待状态，归还临时头部到对象池
+    /// </summary>
+    private void CancelHoldPending()
+    {
+        if (m_holdPendingView != null) m_holdPendingView.SetActive(false);
+        m_holdPending = false;
+        m_holdPendingView = null;
+    }
+
+    /// <summary>
+    /// 放置完整的 Hold（头 + 中间 + 尾），注册撤回/重做
+    /// </summary>
+    private void PlaceHold(int lane, float startTime, float endTime)
+    {
+        CreateHoldView(lane, startTime, endTime);
+        SaveNotesToJson();
+
+        UndoRedoManager.Execute(
+            undo: () => { RemoveHoldAt(lane, startTime); SaveNotesToJson(); },
+            redo: () => { CreateHoldView(lane, startTime, endTime); SaveNotesToJson(); });
+
+        Debug.Log($"[NotePlacementManager] 放置 Hold: lane={lane} time={startTime:F2}s~{endTime:F2}s");
     }
 
     /// <summary>
@@ -396,6 +573,110 @@ public class NotePlacementManager : MonoBehaviour
             redo: () => { CreateNoteView(type, lane, time); SaveNotesToJson(); });
 
         Debug.Log($"[NotePlacementManager] 放置 {type} Note: lane={lane} time={time:F2}s");
+    }
+
+    /// <summary>
+    /// 设置 Note 视觉对象的图片（提取公共逻辑）
+    /// </summary>
+    private void SetupNoteSprite(GameObject view, Sprite sprite)
+    {
+        var img = view.GetComponent<Image>();
+        if (sprite != null)
+        {
+            img.sprite = sprite;
+            img.color = Color.white;
+        }
+        else
+        {
+            img.color = m_fallbackColor;
+        }
+    }
+
+    /// <summary>
+    /// 创建 Hold 视觉对象（头 + 中间平铺 + 尾），加入数据列表
+    /// </summary>
+    private void CreateHoldView(int lane, float startTime, float endTime)
+    {
+        if (m_noteLayer == null) return;
+
+        float cachedX = m_gridManager.LaneToLocalX(lane);
+        float startY = m_gridManager.TimeToLocalY(startTime);
+        float endY = m_gridManager.TimeToLocalY(endTime);
+
+        // 头部（使用尾部贴图）
+        GameObject headView = GetOrCreateNoteView(m_noteLayer);
+        SetupNoteSprite(headView, m_holdTailSprite);
+        headView.transform.localPosition = new Vector3(cachedX, startY, 0);
+        // 整体 Y 轴翻转（贴图方向需要翻转）
+        headView.transform.localScale = new Vector3(1, -1, 1);
+
+        var extraViews = new List<GameObject>();
+
+        // 中间部分（拉伸覆盖头尾中心之间，避免透明间隔）
+        float midHeight = Mathf.Abs(endY - startY);
+        if (midHeight > 1f && m_holdMidSprite != null)
+        {
+            GameObject midView = GetOrCreateNoteView(m_noteLayer);
+            var midImg = midView.GetComponent<Image>();
+            midImg.sprite = m_holdMidSprite;
+            midImg.color = Color.white;
+            midImg.type = Image.Type.Simple;
+            midImg.preserveAspect = false;
+
+            var midRect = midView.GetComponent<RectTransform>();
+            midRect.sizeDelta = new Vector2(m_noteSize, midHeight);
+            midView.transform.localPosition = new Vector3(cachedX, (startY + endY) * 0.5f, 0);
+            // 中间段不翻转
+            midView.transform.localScale = Vector3.one;
+            // 中间段渲染在头尾之下
+            midView.transform.SetAsFirstSibling();
+            extraViews.Add(midView);
+        }
+
+        // 尾部（使用头部贴图）
+        GameObject tailView = GetOrCreateNoteView(m_noteLayer);
+        SetupNoteSprite(tailView, m_holdHeadSprite);
+        tailView.transform.localPosition = new Vector3(cachedX, endY, 0);
+        tailView.transform.localScale = new Vector3(1, -1, 1);
+        extraViews.Add(tailView);
+
+        m_notes.Add(new NoteEntry
+        {
+            Type = NoteType.Hold,
+            Lane = lane,
+            Time = startTime,
+            EndTime = endTime,
+            View = headView,
+            CachedLocalX = cachedX,
+            ExtraViews = extraViews
+        });
+    }
+
+    /// <summary>
+    /// 移除指定位置的 Hold（头 + 中间 + 尾全部移除，作为整体撤回）
+    /// </summary>
+    private void RemoveHoldAt(int lane, float startTime)
+    {
+        for (int i = m_notes.Count - 1; i >= 0; i--)
+        {
+            var note = m_notes[i];
+            if (note.Type == NoteType.Hold && note.Lane == lane
+                && Mathf.Abs(note.Time - startTime) < 0.001f)
+            {
+                // 归还头部
+                if (note.View != null) note.View.SetActive(false);
+                // 归还中间和尾部
+                if (note.ExtraViews != null)
+                {
+                    foreach (var v in note.ExtraViews)
+                    {
+                        if (v != null) v.SetActive(false);
+                    }
+                }
+                m_notes.RemoveAt(i);
+                return;
+            }
+        }
     }
 
     /// <summary>
@@ -460,12 +741,61 @@ public class NotePlacementManager : MonoBehaviour
     {
         for (int i = m_notes.Count - 1; i >= 0; i--)
         {
+            // Hold 类型由 RemoveHoldAt 处理，此处跳过
+            if (m_notes[i].Type == NoteType.Hold) continue;
+
             if (m_notes[i].Lane == lane && Mathf.Abs(m_notes[i].Time - time) < 0.001f)
             {
                 m_notes[i].View.SetActive(false);
                 m_notes.RemoveAt(i);
                 return;
             }
+        }
+    }
+
+    /// <summary>
+    /// 删除悬停位置的 Note（含 Hold），注册撤回/重做。
+    /// 若悬停位置无 Note 则不执行任何操作。
+    /// </summary>
+    private void DeleteNoteAtHover()
+    {
+        int lane = m_hoveredLane;
+        float time = m_hoveredTime;
+
+        // 查找悬停位置的 Note（含 Hold）
+        for (int i = m_notes.Count - 1; i >= 0; i--)
+        {
+            var note = m_notes[i];
+            if (note.Lane != lane || Mathf.Abs(note.Time - time) >= 0.001f) continue;
+
+            NoteType type = note.Type;
+            float startTime = note.Time;
+            float endTime = note.EndTime;
+
+            if (type == NoteType.Hold)
+            {
+                RemoveHoldAt(lane, startTime);
+                SaveNotesToJson();
+
+                UndoRedoManager.Execute(
+                    undo: () => { CreateHoldView(lane, startTime, endTime); SaveNotesToJson(); },
+                    redo: () => { RemoveHoldAt(lane, startTime); SaveNotesToJson(); });
+            }
+            else
+            {
+                RemoveNoteAt(lane, time);
+                SaveNotesToJson();
+
+                UndoRedoManager.Execute(
+                    undo: () => { CreateNoteView(type, lane, time); SaveNotesToJson(); },
+                    redo: () => { RemoveNoteAt(lane, time); SaveNotesToJson(); });
+            }
+
+            // 取消 Hold 等待状态（避免删除后仍显示临时头部）
+            if (m_holdPending) CancelHoldPending();
+
+            Debug.Log($"[NotePlacementManager] 删除 {type} Note: lane={lane} time={time:F2}s");
+            return;
         }
     }
 
@@ -480,7 +810,19 @@ public class NotePlacementManager : MonoBehaviour
             {
                 note.View.SetActive(false);
             }
+
+            // Hold 的中间和尾部也要归还
+            if (note.ExtraViews != null)
+            {
+                foreach (var v in note.ExtraViews)
+                {
+                    if (v != null) v.SetActive(false);
+                }
+            }
         }
+
+        // 取消 Hold 等待状态
+        CancelHoldPending();
 
         m_notes.Clear();
     }
@@ -497,7 +839,8 @@ public class NotePlacementManager : MonoBehaviour
             {
                 type = note.Type.ToString(),
                 lane = note.Lane,
-                time = Mathf.Round(note.Time * 100f) / 100f
+                time = Mathf.Round(note.Time * 100f) / 100f,
+                endTime = (note.Type == NoteType.Hold) ? Mathf.Round(note.EndTime * 100f) / 100f : 0f
             });
         }
         return result;
@@ -536,7 +879,14 @@ public class NotePlacementManager : MonoBehaviour
         {
             if (Enum.TryParse<NoteType>(node.type, out NoteType type))
             {
-                CreateNoteView(type, node.lane, node.time);
+                if (type == NoteType.Hold && node.endTime > 0f)
+                {
+                    CreateHoldView(node.lane, node.time, node.endTime);
+                }
+                else
+                {
+                    CreateNoteView(type, node.lane, node.time);
+                }
             }
         }
     }
@@ -585,9 +935,21 @@ public class NotePlacementManager : MonoBehaviour
             case NoteType.Flick: return m_flickSprite;
             case NoteType.ReverseFlick: return m_flickSprite;
             case NoteType.Drag: return m_dragSprite;
+            case NoteType.Hold: return m_holdHeadSprite;
             default: return null;
         }
     }
+
+    // ---- 公开访问器（供 PlaybackModeController 使用）----
+
+    /// <summary>Note 渲染层 RectTransform</summary>
+    public RectTransform NoteLayerRect => m_noteLayer;
+
+    /// <summary>Note 视觉尺寸</summary>
+    public float NoteSize => m_noteSize;
+
+    /// <summary>根据 NoteType 获取对应 Sprite（公开接口）</summary>
+    public Sprite GetNoteSprite(NoteType type) => GetSpriteForType(type);
 
     #region JSON 持久化
 
@@ -634,12 +996,27 @@ public class NotePlacementManager : MonoBehaviour
                 {
                     type = note.Type.ToString(),
                     lane = note.Lane,
-                    time = Mathf.Round(note.Time * 100f) / 100f
+                    time = Mathf.Round(note.Time * 100f) / 100f,
+                    endTime = (note.Type == NoteType.Hold) ? Mathf.Round(note.EndTime * 100f) / 100f : 0f
                 });
             }
 
             var jsonStr = JsonUtility.ToJson(data);
             File.WriteAllText(tmpPath, jsonStr);
+
+            // 诊断日志：验证 cubes 字段是否被保留
+            int cubeCount = data.cubes?.Count ?? 0;
+            int totalAnchors = 0;
+            if (data.cubes != null)
+            {
+                foreach (var cube in data.cubes)
+                {
+                    if (cube.easingSlots != null)
+                        foreach (var slot in cube.easingSlots)
+                            totalAnchors += slot?.anchorPoints?.Count ?? 0;
+                }
+            }
+            Debug.Log($"[{GetType().Name}] 保存 Note: notes={data.notes?.Count ?? 0}, cubes={cubeCount}, anchors={totalAnchors}");
         }
         catch (Exception ex)
         {
@@ -671,7 +1048,14 @@ public class NotePlacementManager : MonoBehaviour
                     continue;
                 }
 
-                CreateNoteView(type, node.lane, node.time);
+                if (type == NoteType.Hold && node.endTime > 0f)
+                {
+                    CreateHoldView(node.lane, node.time, node.endTime);
+                }
+                else
+                {
+                    CreateNoteView(type, node.lane, node.time);
+                }
             }
 
             Debug.Log($"[{GetType().Name}] 从 chart.tmp 加载 {m_notes.Count} 个 Note");

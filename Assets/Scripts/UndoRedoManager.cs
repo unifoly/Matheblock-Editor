@@ -176,8 +176,9 @@ public static class UndoRedoManager
 
     /// <summary>
     /// 检测当前是否有 TMP_InputField 获得焦点。
+    /// 供其他管理器在处理快捷键前检查，避免与文本输入冲突。
     /// </summary>
-    private static bool IsTextInputFocused()
+    public static bool IsTextInputFocused()
     {
         var eventSystem = EventSystem.current;
         if (eventSystem == null || eventSystem.currentSelectedGameObject == null)

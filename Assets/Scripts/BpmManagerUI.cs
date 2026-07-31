@@ -217,10 +217,8 @@ public class BpmManagerUI : MonoBehaviour
             m_bpmButton.onClick.RemoveListener(HandleBpmButtonClicked);
         }
 
-        if (m_saveButton != null)
-        {
-            m_saveButton.onClick.RemoveListener(HandleSaveButtonClicked);
-        }
+        // 不移除 Save 按钮监听器：AnchorPointEditorUI 等面板会禁用 FunctionChanger 子物体，
+        // 触发 OnDisable，若移除监听器则 Save 按钮失效。OnEnable 中已有 RemoveListener 防重复注册。
     }
 
     /// <summary>
@@ -276,18 +274,8 @@ public class BpmManagerUI : MonoBehaviour
     {
         Debug.Log($"[{GetType().Name}] Save 点击: entries={m_nodeEntries.Count}, panelActive={(m_bpmPanel != null && m_bpmPanel.activeSelf)}");
 
-        var tmpPath = GetTmpJsonPath();
-        var finalPath = GetFinalJsonPath();
-        if (string.IsNullOrEmpty(tmpPath) || string.IsNullOrEmpty(finalPath) || !File.Exists(tmpPath))
-        {
-            Debug.LogWarning($"[{GetType().Name}] 路径异常: tmp={tmpPath}, final={finalPath}");
-            return;
-        }
-
-        // 每次编辑（添加/删除/改时间/改BPM）都已即时写入 .tmp，此处直接将其覆写到 .json
-        var content = File.ReadAllText(tmpPath);
-        File.WriteAllText(finalPath, content);
-        Debug.Log($"[{GetType().Name}] 已写入 {finalPath}, len={content.Length}");
+        // 确保所有数据（含方体/锚点）持久化到 chart.json
+        EditorInit.PersistToChartJson();
     }
 
     /// <summary>

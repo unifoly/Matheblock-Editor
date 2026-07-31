@@ -182,34 +182,41 @@ public static class EasingSlotConfigs
     /// <summary>15 个数据槽的配置</summary>
     public static readonly EasingSlotConfig[] Slots =
     {
-        // lx, ly, lz - 方体长宽高
-        new EasingSlotConfig(1f, 0f, 10f),
-        new EasingSlotConfig(1f, 0f, 10f),
-        new EasingSlotConfig(1f, 0f, 10f),
+        // lx, ly, lz - 方体长宽高（百分比，100=原始大小）
+        new EasingSlotConfig(100f, 0f, 200f),
+        new EasingSlotConfig(100f, 0f, 200f),
+        new EasingSlotConfig(100f, 0f, 200f),
 
         // rx, ry, rz - 方体倾斜角（度）
         new EasingSlotConfig(0f, -360f, 360f),
         new EasingSlotConfig(0f, -360f, 360f),
         new EasingSlotConfig(0f, -360f, 360f),
 
-        // px, py, pz - 方体位置
+        // px, py - 方体屏幕位置（0=屏幕中心）；pz - 深度（0=摄像机平面）
         new EasingSlotConfig(0f, -10f, 10f),
         new EasingSlotConfig(0f, -10f, 10f),
         new EasingSlotConfig(0f, -10f, 10f),
 
-        // R, G, B, A - 方体颜色
+        // R, G, B - 方体颜色（0~1，默认 0.9）
         new EasingSlotConfig(0.9f, 0f, 1f),
         new EasingSlotConfig(0.9f, 0f, 1f),
         new EasingSlotConfig(0.9f, 0f, 1f),
-        new EasingSlotConfig(1f, 0f, 1f),
+        // A - Alpha 修改值（默认 1，可 >1 增强不透明度）
+        new EasingSlotConfig(1f, 0f, 2f),
 
         // 棱偏移
         new EasingSlotConfig(0f, -1f, 1f),
 
-        // 流速
-        new EasingSlotConfig(1f, 0f, 10f)
+        // 流速（默认 30）
+        new EasingSlotConfig(30f, 0f, 60f)
     };
 
-    /// <summary>数据槽数量</summary>
-    public const int SlotCount = 15;
+    /// <summary>方体级数据槽数量（lx~A，共13个）</summary>
+    public const int CubeSlotCount = 13;
+
+    /// <summary>轨道级数据槽数量（棱偏移、流速，共2个）</summary>
+    public const int TrackSlotCount = 2;
+
+    /// <summary>数据槽总数量（方体级 + 轨道级）</summary>
+    public const int SlotCount = CubeSlotCount + TrackSlotCount;
 }

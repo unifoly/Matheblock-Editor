@@ -616,6 +616,9 @@ public class GridManager : MonoBehaviour
     /// <summary>缩放后的有效像素密度（像素/秒）</summary>
     public float EffectivePPS => EffectivePixelsPerSecond;
 
+    /// <summary>当前标定线（3/4处）对应的时间（秒）</summary>
+    public float CurrentTime => EffectivePixelsPerSecond > 0 ? m_scrollOffset / EffectivePixelsPerSecond : 0f;
+
     /// <summary>当前轨道线数量</summary>
     public int LaneCount => m_yLineCount;
 

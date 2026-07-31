@@ -92,6 +92,10 @@ public class InfoManagerUI : MonoBehaviour
         {
             m_saveButton = saveObj.GetComponent<Button>();
         }
+        else
+        {
+            Debug.LogWarning($"[{GetType().Name}] 未找到 Save GameObject！");
+        }
     }
 
     private void OnEnable()
@@ -116,10 +120,8 @@ public class InfoManagerUI : MonoBehaviour
             m_infoButton.onClick.RemoveListener(HandleInfoButtonClicked);
         }
 
-        if (m_saveButton != null)
-        {
-            m_saveButton.onClick.RemoveListener(HandleSaveButtonClicked);
-        }
+        // 不移除 Save 按钮监听器：AnchorPointEditorUI 等面板会禁用 FunctionChanger 子物体，
+        // 触发 OnDisable，若移除监听器则 Save 按钮失效。OnEnable 中已有 RemoveListener 防重复注册。
     }
 
     /// <summary>
@@ -154,13 +156,16 @@ public class InfoManagerUI : MonoBehaviour
     }
 
     /// <summary>
-    /// Save 按钮：chart.tmp 已是最新，此处仅日志确认
+    /// Save 按钮：保存 Info 并持久化到 chart.json
     /// </summary>
     private void HandleSaveButtonClicked()
     {
         // 确保 info 字段已写入 chart.tmp
         SaveInfoToJson();
-        Debug.Log($"[{GetType().Name}] Info 数据已确认保存");
+
+        // 持久化到 chart.json（含方体/锚点数据）
+        EditorInit.PersistToChartJson();
+        Debug.Log($"[{GetType().Name}] Info 数据已保存并持久化到 chart.json");
     }
 
     #region 面板构建
@@ -466,7 +471,7 @@ public class InfoManagerUI : MonoBehaviour
     }
 
     /// <summary>
-    /// 更新 PlayScreen 背景图
+    /// 更新 PlayScreen 背景图（预模糊处理，与 EditorInit 一致）
     /// </summary>
     private void UpdatePlayScreenIllustration(string illustrationPath)
     {
@@ -477,14 +482,54 @@ public class InfoManagerUI : MonoBehaviour
         {
             var tex = new Texture2D(1, 1);
             tex.LoadImage(File.ReadAllBytes(illustrationPath));
-            playScreen.GetComponent<Image>().sprite = Sprite.Create(tex,
-                new Rect(0, 0, tex.width, tex.height),
+
+            // 预模糊：降采样+升采样
+            var blurred = CreateBlurredTexture(tex);
+            playScreen.GetComponent<Image>().sprite = Sprite.Create(blurred,
+                new Rect(0, 0, blurred.width, blurred.height),
                 new Vector2(0.5f, 0.5f));
         }
         catch (Exception ex)
         {
             Debug.LogWarning($"[{GetType().Name}] 更新 PlayScreen 背景失败: {ex.Message}");
         }
+    }
+
+    /// <summary>
+    /// 使用双 Pass 高斯模糊 shader 预模糊纹理（与 EditorInit 一致）
+    /// </summary>
+    private static Texture2D CreateBlurredTexture(Texture2D source)
+    {
+        if (source == null) return null;
+
+        var blurShader = Shader.Find("Hidden/GaussianBlur");
+        if (blurShader == null)
+        {
+            Debug.LogWarning("[InfoManagerUI] 未找到 Hidden/GaussianBlur shader，返回原图");
+            return source;
+        }
+
+        var blurMat = new Material(blurShader);
+        blurMat.SetFloat("_BlurSize", 2.0f);
+
+        var rt1 = RenderTexture.GetTemporary(source.width, source.height, 0);
+        var rt2 = RenderTexture.GetTemporary(source.width, source.height, 0);
+
+        Graphics.Blit(source, rt1, blurMat, 0);
+        Graphics.Blit(rt1, rt2, blurMat, 1);
+
+        var prevActive = RenderTexture.active;
+        RenderTexture.active = rt2;
+        var blurred = new Texture2D(source.width, source.height, TextureFormat.RGBA32, false);
+        blurred.ReadPixels(new Rect(0, 0, source.width, source.height), 0, 0);
+        blurred.Apply();
+        RenderTexture.active = prevActive;
+
+        RenderTexture.ReleaseTemporary(rt1);
+        RenderTexture.ReleaseTemporary(rt2);
+        Destroy(blurMat);
+
+        return blurred;
     }
 
     #endregion
@@ -527,6 +572,14 @@ public class InfoManagerUI : MonoBehaviour
     {
         var tmpPath = GetTmpJsonPath();
         if (string.IsNullOrEmpty(tmpPath)) return;
+
+        // 输入框在首次打开 Info 面板时才创建（懒加载），未打开时跳过 Info 保存
+        if (m_musicNameInput == null || m_charterInput == null ||
+            m_musicianInput == null || m_illustrationerInput == null)
+        {
+            Debug.Log($"[{GetType().Name}] Info 面板未打开，跳过 Info 保存");
+            return;
+        }
 
         try
         {

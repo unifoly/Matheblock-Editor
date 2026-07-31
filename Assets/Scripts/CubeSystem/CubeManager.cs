@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using UnityEngine;
+using UnityEngine.UI;
 
 /// <summary>
 /// 方体管理器：负责方体的创建、选择、JSON 持久化以及3D可视化。
@@ -15,6 +16,34 @@ public class CubeManager : MonoBehaviour
 
     [Tooltip("多方体之间的间距（X轴方向）")]
     [SerializeField] private float m_cubeSpacing = 2f;
+
+    // ---- 方体渲染层 ----
+    // 专用 Layer，CubeCamera 仅渲染此层，避免方体出现在主相机背景中
+    private const int k_cubeLayer = 8;
+    // 正交相机半高，控制方体在 RawImage 中的视觉大小
+    private const float k_cameraOrthoSize = 0.8f;
+    // 相机 Y 偏移：使方体顶棱对齐标定线（视口 1/4 处）
+    private const float k_cameraYOffset = 0f;
+
+    private Camera m_cubeCamera;
+    private RenderTexture m_cubeRenderTexture;
+    private RawImage m_cubeDisplay;
+
+    /// <summary>方体显示 RawImage，供 PlaybackModeController 调整透明度</summary>
+    public RawImage CubeDisplay => m_cubeDisplay;
+
+    /// <summary>方体渲染层（CubeCamera 仅渲染此层）</summary>
+    public int CubeLayer => k_cubeLayer;
+
+    /// <summary>方体渲染相机（供外部计算视野范围）</summary>
+    public Camera CubeCamera => m_cubeCamera;
+
+    /// <summary>当前活跃方体的 Transform（供 3D Note 挂载）</summary>
+    public Transform ActiveCubeTransform =>
+        m_visualizers.TryGetValue(m_activeCubeId, out var v) ? v.transform : null;
+
+    /// <summary>方体边长（供 3D Note 定位）</summary>
+    public float CubeSize => m_defaultCubeSize;
 
     // ---- 运行时状态 ----
     private readonly List<CubeData> m_cubes = new List<CubeData>();
@@ -53,17 +82,22 @@ public class CubeManager : MonoBehaviour
 
     private void Awake()
     {
-        // 从谱面目录加载已有方体数据
-        LoadCubesFromJson();
+        // LoadCubesFromJson 移至 Start，确保 EditorInit.Awake 已设置 ChartPath 并创建 chart.tmp
     }
 
     private void Start()
     {
+        // 从谱面目录加载已有方体数据（EditorInit.Awake 已在所有 Start 之前运行）
+        LoadCubesFromJson();
+
         // 如果加载后没有方体，创建默认的 Cube_1
         if (m_cubes.Count == 0)
         {
             CreateDefaultCube();
         }
+
+        // 设置方体渲染到 PlayScreen 的 RenderTexture 显示
+        SetupCubeDisplay();
 
         // 为所有方体创建可视化
         foreach (var cube in m_cubes)
@@ -76,6 +110,9 @@ public class CubeManager : MonoBehaviour
         {
             SetActiveCube(m_cubes[0].cubeId);
         }
+
+        // 初始定位相机对准活跃方体
+        UpdateCubeCameraPosition();
     }
 
     /// <summary>
@@ -91,6 +128,7 @@ public class CubeManager : MonoBehaviour
         };
 
         cubeData.InitializeDefaultTracks();
+        cubeData.InitializeDefaultEasingSlots();
         m_cubes.Add(cubeData);
         m_nextCubeId = 2;
         m_activeCubeId = 1;
@@ -112,6 +150,7 @@ public class CubeManager : MonoBehaviour
         };
 
         cubeData.InitializeDefaultTracks();
+        cubeData.InitializeDefaultEasingSlots();
         m_cubes.Add(cubeData);
 
         // 创建3D可视化
@@ -174,6 +213,7 @@ public class CubeManager : MonoBehaviour
         // 删除的是活跃方体时，通知 UI 更新高亮并重新加载轨道
         if (activeCubeChanged && m_activeCubeId > 0)
         {
+            UpdateCubeCameraPosition();
             ActiveCubeChanged?.Invoke(m_activeCubeId);
         }
 
@@ -188,6 +228,7 @@ public class CubeManager : MonoBehaviour
         if (m_activeCubeId == cubeId) return;
 
         m_activeCubeId = cubeId;
+        UpdateCubeCameraPosition();
         ActiveCubeChanged?.Invoke(cubeId);
         Debug.Log($"[{GetType().Name}] 选中方体: ID={cubeId}，切换轨道组");
     }
@@ -227,14 +268,114 @@ public class CubeManager : MonoBehaviour
     {
         var cubeGo = new GameObject($"Cube_{cubeData.cubeId}");
         cubeGo.transform.SetParent(transform, false);
+        cubeGo.layer = k_cubeLayer;
 
         // 多方体沿 X 轴排列
         cubeGo.transform.localPosition = new Vector3(cubeData.cubeId * m_cubeSpacing, 0, 0);
 
         var visualizer = cubeGo.AddComponent<CubeVisualizer>();
-        visualizer.Initialize(cubeData.cubeId);
+        visualizer.Initialize(cubeData.cubeId, k_cubeLayer);
 
         m_visualizers[cubeData.cubeId] = visualizer;
+    }
+
+    // ---- 方体 RenderTexture 显示 ----
+
+    /// <summary>
+    /// 创建 CubeCamera + RenderTexture + RawImage，将3D方体渲染到 PlayScreen 中（曲绘上方、网格下方）
+    /// </summary>
+    private void SetupCubeDisplay()
+    {
+        var playScreenObj = GameObject.Find("PlayScreen");
+        if (playScreenObj == null)
+        {
+            Debug.LogError($"[{GetType().Name}] 未找到 PlayScreen，无法设置方体显示");
+            return;
+        }
+
+        var playScreenRect = playScreenObj.GetComponent<RectTransform>();
+
+        // 创建 RenderTexture（与 PlayScreen 尺寸一致，保证正确宽高比）
+        int texWidth = Mathf.RoundToInt(playScreenRect.rect.width);
+        int texHeight = Mathf.RoundToInt(playScreenRect.rect.height);
+        m_cubeRenderTexture = new RenderTexture(texWidth, texHeight, 24, RenderTextureFormat.ARGB32);
+
+        // 创建 CubeCamera（正交，仅渲染方体层，透明背景）
+        var cameraGo = new GameObject("CubeCamera");
+        m_cubeCamera = cameraGo.AddComponent<Camera>();
+        m_cubeCamera.clearFlags = CameraClearFlags.SolidColor;
+        m_cubeCamera.backgroundColor = new Color(0, 0, 0, 0);
+        m_cubeCamera.orthographic = true;
+        m_cubeCamera.orthographicSize = k_cameraOrthoSize;
+        m_cubeCamera.cullingMask = 1 << k_cubeLayer;
+        m_cubeCamera.targetTexture = m_cubeRenderTexture;
+        m_cubeCamera.depth = 100;
+
+        // 从主相机中移除方体层，避免方体出现在编辑器背景中
+        var mainCam = Camera.main;
+        if (mainCam != null)
+        {
+            mainCam.cullingMask &= ~(1 << k_cubeLayer);
+        }
+
+        // 创建 RawImage 插入 PlayScreen 第一个子物体位置（曲绘之上、网格之下）
+        var displayGo = new GameObject("CubeDisplay", typeof(RectTransform));
+        displayGo.transform.SetParent(playScreenRect, false);
+        displayGo.transform.SetAsFirstSibling();
+        displayGo.layer = 5; // UI Layer
+
+        var displayRect = displayGo.GetComponent<RectTransform>();
+        displayRect.anchorMin = Vector2.zero;
+        displayRect.anchorMax = Vector2.one;
+        displayRect.offsetMin = Vector2.zero;
+        displayRect.offsetMax = Vector2.zero;
+
+        m_cubeDisplay = displayGo.AddComponent<RawImage>();
+        m_cubeDisplay.texture = m_cubeRenderTexture;
+        m_cubeDisplay.raycastTarget = false;
+
+        Debug.Log($"[{GetType().Name}] 方体 RenderTexture 显示已设置: {texWidth}x{texHeight}");
+    }
+
+    /// <summary>
+    /// 更新 CubeCamera 位置，跟随当前活跃方体
+    /// </summary>
+    private void UpdateCubeCameraPosition()
+    {
+        if (m_cubeCamera == null) return;
+
+        var cube = GetCube(m_activeCubeId);
+        if (cube == null) return;
+
+        float cubeX = cube.cubeId * m_cubeSpacing;
+        m_cubeCamera.transform.position = new Vector3(cubeX, k_cameraYOffset, 0);
+        m_cubeCamera.orthographicSize = k_cameraOrthoSize;
+    }
+
+    /// <summary>
+    /// 切换放映模式相机：居中方体正面，收紧视野
+    /// </summary>
+    public void SetPlaybackCameraMode(bool enabled)
+    {
+        if (m_cubeCamera == null) return;
+
+        var cube = GetCube(m_activeCubeId);
+        if (cube == null) return;
+
+        float cubeX = cube.cubeId * m_cubeSpacing;
+
+        if (enabled)
+        {
+            // 居中方体，收紧视野以充满画面
+            m_cubeCamera.transform.position = new Vector3(cubeX, 0, 0);
+            m_cubeCamera.orthographicSize = 0.8f;
+        }
+        else
+        {
+            // 恢复编辑模式：方体顶棱对齐标定线
+            m_cubeCamera.transform.position = new Vector3(cubeX, k_cameraYOffset, 0);
+            m_cubeCamera.orthographicSize = k_cameraOrthoSize;
+        }
     }
 
     // ---- JSON 持久化 ----
@@ -311,6 +452,7 @@ public class CubeManager : MonoBehaviour
 
             string jsonStr = JsonUtility.ToJson(data, true);
             File.WriteAllText(tmpPath, jsonStr);
+
             Debug.Log($"[{GetType().Name}] 保存 {m_cubes.Count} 个方体到 chart.tmp");
         }
         catch (Exception ex)
@@ -341,12 +483,35 @@ public class CubeManager : MonoBehaviour
                 m_cubes.Clear();
                 m_cubes.AddRange(data.cubes);
 
-                // 更新下一个可用的 ID
+                // 更新下一个可用的 ID，并补全缺失的缓动数据槽
                 foreach (var cube in m_cubes)
                 {
                     if (cube.cubeId >= m_nextCubeId)
                     {
                         m_nextCubeId = cube.cubeId + 1;
+                    }
+
+                    // 兼容旧数据：若无缓动槽则初始化
+                    if (cube.easingSlots == null || cube.easingSlots.Count == 0)
+                    {
+                        cube.InitializeDefaultEasingSlots();
+                    }
+
+                    // 兼容旧数据：若无轨道则初始化24条轨道（含轨道级缓动槽）
+                    if (cube.tracks == null || cube.tracks.Count == 0)
+                    {
+                        cube.InitializeDefaultTracks();
+                    }
+                    else
+                    {
+                        // 确保每条轨道有缓动槽
+                        foreach (var track in cube.tracks)
+                        {
+                            if (track.easingSlots == null || track.easingSlots.Count == 0)
+                            {
+                                track.InitializeDefaultTrackEasingSlots();
+                            }
+                        }
                     }
                 }
 

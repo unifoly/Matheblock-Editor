@@ -24,18 +24,3 @@ public enum FaceDirection
     Left,   // 左
     Right   // 右
 }
-
-/// <summary>
-/// 方体系统常量定义
-/// </summary>
-public static class CubeConstants
-{
-    /// <summary>每个方体的面数</summary>
-    public const int FaceCount = 6;
-
-    /// <summary>每个面的方向数</summary>
-    public const int DirectionCount = 4;
-
-    /// <summary>每个方体的note轨道总数 (6 × 4 = 24)</summary>
-    public const int TotalTracksPerCube = FaceCount * DirectionCount;
-}

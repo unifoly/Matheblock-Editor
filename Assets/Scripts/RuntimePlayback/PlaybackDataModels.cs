@@ -49,10 +49,10 @@ namespace RuntimePlayback
         public string cubeName;
         public string cubeNote = "";
 
-        // 方体级视觉属性
-        public float lengthX = 0f;
-        public float lengthY = 0f;
-        public float lengthZ = 0f;
+        // 方体级视觉属性（默认值与编辑器 CubeData / EasingSlotConfigs 保持一致：100 = 原始大小）
+        public float lengthX = 100f;
+        public float lengthY = 100f;
+        public float lengthZ = 100f;
         public float rotationX = 0f;
         public float rotationY = 0f;
         public float rotationZ = 0f;

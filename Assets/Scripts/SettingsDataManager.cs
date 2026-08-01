@@ -13,7 +13,6 @@ namespace HexMap
         private const string k_fileName = "Settings.json";
 
         private static string s_filePath;
-        private static bool s_initialized;
 
         // 序列化用数据类
         [Serializable]
@@ -58,7 +57,16 @@ namespace HexMap
 
         static SettingsDataManager()
         {
-            Load();
+            // 静态构造内兜底 try-catch，避免文件 IO 异常触发 TypeInitializationException
+            // 使后续所有静态成员永久不可用
+            try
+            {
+                Load();
+            }
+            catch (Exception ex)
+            {
+                Debug.LogError($"[SettingsDataManager] 初始化失败，使用默认设置: {ex}");
+            }
         }
 
         public static void Load()
@@ -75,7 +83,6 @@ namespace HexMap
             }
 
             ApplySettings();
-            s_initialized = true;
         }
 
         /// <summary>

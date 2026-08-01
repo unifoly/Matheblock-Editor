@@ -9,7 +9,6 @@ public class MusicTimeStampController : MonoBehaviour
     
     private AudioSource m_music;
     private Slider m_slider;
-    private double m_roundedMusicTime;
     private TextMeshProUGUI m_timeText;
 
     private void Start()
@@ -22,13 +21,11 @@ public class MusicTimeStampController : MonoBehaviour
         {
             m_timeText = timeObj.GetComponent<TextMeshProUGUI>();
         }
-        
-        m_roundedMusicTime = Math.Round(MusicTime, 2);
     }
 
     private void Update()
     {
-        if (m_music != null && m_slider != null && m_music.isPlaying)
+        if (m_music != null && m_slider != null && m_music.isPlaying && MusicTime > 0.0)
         {
             m_slider.value = (float)(m_music.time / MusicTime);
         }
@@ -38,7 +35,8 @@ public class MusicTimeStampController : MonoBehaviour
     {
         if (m_timeText != null && m_slider != null)
         {
-            m_timeText.text = $"{Math.Round(m_slider.value * MusicTime, 2)}/{m_roundedMusicTime}";
+            // 总时长实时取 MusicTime（音频异步加载完成后才有效），避免 Start 时捕获到 0
+            m_timeText.text = $"{Math.Round(m_slider.value * MusicTime, 2)}/{Math.Round(MusicTime, 2)}";
         }
     }
 }

@@ -59,14 +59,6 @@ public class CubeNoteTrackData
             easingSlots.Add(slotData);
         }
     }
-
-    /// <summary>
-    /// 生成轨道的唯一标识键 "Face_Direction"（如 "Up_Left"）
-    /// </summary>
-    public string GetTrackKey()
-    {
-        return $"{face}_{direction}";
-    }
 }
 
 /// <summary>

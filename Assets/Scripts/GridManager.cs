@@ -389,7 +389,7 @@ public class GridManager : MonoBehaviour
     /// 每条线通过 BpmManagerUI.GetBpmAtTime() 获取对应时间点的 BPM 来确定间距。
     /// m_scrollOffset / m_pixelsPerSecond = 3/4 基准线处对应的时间点，视口窗口始终固定。
     /// </summary>
-    private void DrawHorizontalLines(bool skipDebugLog = false)
+    private void DrawHorizontalLines()
     {
         if (m_playScreenRect == null || m_viewportHeight <= 0 || EffectivePixelsPerSecond <= 0) return;
         if (m_totalMusicTime <= 0) return;
@@ -430,8 +430,6 @@ public class GridManager : MonoBehaviour
         int poolIndex = 0;
 
         // 调试：记录可见线中第一条和最后一条 BPM，以及BPM发生变化的位置
-        System.Text.StringBuilder posLog = skipDebugLog ? null : new System.Text.StringBuilder();
-        int posLogCount = 0;
         float firstBpm = 0f;
         float lastBpm = 0f;
         int bpmChangeCount = 0;
@@ -468,13 +466,6 @@ public class GridManager : MonoBehaviour
                 if (prevDrawnBpm > 0 && Mathf.Abs(bpm - prevDrawnBpm) > 0.1f)
                     bpmChangeCount++;
                 prevDrawnBpm = bpm;
-
-                // 记录前8条线的位置
-                if (posLog != null && posLogCount < 8)
-                {
-                    posLog.Append($" [t={time:F3}bpm={bpm:F0}y={yPos:F0}]");
-                    posLogCount++;
-                }
             }
 
             time += intervalFactor / bpm;
@@ -492,7 +483,7 @@ public class GridManager : MonoBehaviour
 
         // 调试输出（功能已完善，注释掉）
         // Debug.Log($"[GridManager] curTime={currentTime:F2}s visTime=[{visibleTimeMin:F1}, {visibleTimeMax:F1}] " +
-        //     $"beats={poolIndex} BPM:first={firstBpm:F0} last={lastBpm:F0} changes={bpmChangeCount}{posLog}");
+        //     $"beats={poolIndex} BPM:first={firstBpm:F0} last={lastBpm:F0} changes={bpmChangeCount}");
     }
 
     /// <summary>
@@ -618,8 +609,7 @@ public class GridManager : MonoBehaviour
             m_scrollOffset = Mathf.Clamp(m_scrollOffset, 0f, TotalScrollRange);
         }
 
-        // 跳过调试日志构建，避免每帧分配
-        DrawHorizontalLines(true);
+        DrawHorizontalLines();
 
         if (TotalScrollRange > 0)
         {

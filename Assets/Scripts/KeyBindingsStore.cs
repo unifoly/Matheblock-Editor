@@ -269,26 +269,34 @@ namespace HexMap
         /// <summary>
         /// 返回修饰键的左右变体（用于检测时同时匹配 Left/Right）
         /// </summary>
+        // 修饰键变体缓存（避免 IsPressed/IsHeld 每帧 new[] 分配）
+        private static readonly KeyCode[] k_shiftVariants = { KeyCode.LeftShift, KeyCode.RightShift };
+        private static readonly KeyCode[] k_ctrlVariants = { KeyCode.LeftControl, KeyCode.RightControl };
+        private static readonly KeyCode[] k_altVariants = { KeyCode.LeftAlt, KeyCode.RightAlt };
+        private static readonly KeyCode[] k_cmdVariants = { KeyCode.LeftCommand, KeyCode.RightCommand };
+        private static readonly KeyCode[] k_winVariants = { KeyCode.LeftWindows, KeyCode.RightWindows };
+
         private static KeyCode[] GetModifierVariants(KeyCode key)
         {
             switch (key)
             {
                 case KeyCode.LeftShift:
                 case KeyCode.RightShift:
-                    return new[] { KeyCode.LeftShift, KeyCode.RightShift };
+                    return k_shiftVariants;
                 case KeyCode.LeftControl:
                 case KeyCode.RightControl:
-                    return new[] { KeyCode.LeftControl, KeyCode.RightControl };
+                    return k_ctrlVariants;
                 case KeyCode.LeftAlt:
                 case KeyCode.RightAlt:
-                    return new[] { KeyCode.LeftAlt, KeyCode.RightAlt };
+                    return k_altVariants;
                 case KeyCode.LeftCommand:
                 case KeyCode.RightCommand:
-                    return new[] { KeyCode.LeftCommand, KeyCode.RightCommand };
+                    return k_cmdVariants;
                 case KeyCode.LeftWindows:
                 case KeyCode.RightWindows:
-                    return new[] { KeyCode.LeftWindows, KeyCode.RightWindows };
+                    return k_winVariants;
                 default:
+                    // 仅当传入非已知修饰键时到达（正常调用路径不会），保持与原行为一致
                     return new[] { key };
             }
         }

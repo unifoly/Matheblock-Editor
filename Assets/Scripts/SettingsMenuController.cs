@@ -23,12 +23,6 @@ namespace HexMap
         [Header("菜单条目（按钮 → 对应设置面板）")]
         [SerializeField] private List<MenuEntry> m_menuEntries = new();
 
-        [Header("菜单按钮容器（Menu 下含 ScrollRect 的子节点）")]
-        [SerializeField] private Transform m_menuContent;
-
-        [Header("设置页面容器（Settings 下子页面的父节点）")]
-        [SerializeField] private Transform m_pageContainer;
-
         [Header("高亮色")]
         [SerializeField] private Color m_activeColor = new Color(0.3f, 0.6f, 0.9f);
         [SerializeField] private Color m_inactiveColor = new Color(0.226f, 0.226f, 0.226f);

@@ -116,6 +116,15 @@ namespace HexMap
                 if (Input.anyKeyDown)
                 {
                     KeyCode pressed = DetectPressedKey();
+
+                    // Esc 视为取消，不保存并恢复原绑定
+                    if (pressed == KeyCode.Escape)
+                    {
+                        m_keyDisplay.text = originalText;
+                        m_isRebinding = false;
+                        yield break;
+                    }
+
                     if (pressed != KeyCode.None)
                     {
                         string keyName = BuildCombinedKeyName(pressed);

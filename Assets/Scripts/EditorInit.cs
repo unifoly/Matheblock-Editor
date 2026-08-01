@@ -26,7 +26,8 @@ public class EditorInit : MonoBehaviour
     private void Awake()
     {
         // 缓存组件引用，避免协程中重复查找
-        m_txtDisplayer = GameObject.Find("Time").GetComponent<TextMeshProUGUI>();
+        var timeObj = GameObject.Find("Time");
+        m_txtDisplayer = timeObj != null ? timeObj.GetComponent<TextMeshProUGUI>() : null;
         m_portalHandler = GameObject.Find("PortalHandler");
         m_initHandler = GameObject.Find("InitManager");
         m_imageTypeManager = new ImageTypeManager();
@@ -154,17 +155,31 @@ public class EditorInit : MonoBehaviour
     /// </summary>
     private void CopyChartToTemp()
     {
-        var chartPath = Path.Combine(m_infoDir, "chart.json");
-        var tmpPath = Path.Combine(m_infoDir, "chart.tmp");
-
-        if (File.Exists(chartPath))
+        // 谱面路径为空时直接跳过，避免在当前工作目录误生成 chart 文件
+        if (string.IsNullOrEmpty(m_infoDir))
         {
-            File.Copy(chartPath, tmpPath, overwrite: true);
+            Debug.LogWarning("[EditorInit] CopyChartToTemp: 谱面路径为空，跳过");
+            return;
         }
-        else
+
+        try
         {
-            // chart.json 不存在时创建一个空的 tmp
-            File.WriteAllText(tmpPath, "{}");
+            var chartPath = Path.Combine(m_infoDir, "chart.json");
+            var tmpPath = Path.Combine(m_infoDir, "chart.tmp");
+
+            if (File.Exists(chartPath))
+            {
+                File.Copy(chartPath, tmpPath, overwrite: true);
+            }
+            else
+            {
+                // chart.json 不存在时创建一个空的 tmp
+                File.WriteAllText(tmpPath, "{}");
+            }
+        }
+        catch (Exception ex)
+        {
+            Debug.LogError($"[EditorInit] 复制 chart.json 失败: {ex}");
         }
     }
 
@@ -228,21 +243,51 @@ public class EditorInit : MonoBehaviour
 
     private void LoadIllustration()
     {
-        var illustrationPath = Path.Combine(m_infoDir, "illustration.png");
-        var tex = m_imageTypeManager.GetTextureByString(
-            m_imageTypeManager.SetImageToString(illustrationPath));
-
-        // 预模糊曲绘纹理，替代场景中的 GrabPass Blur shader
-        var blurredTex = CreateBlurredTexture(tex);
-        GameObject.Find("PlayScreen").GetComponent<Image>().sprite =
-            Sprite.Create(blurredTex, new Rect(0, 0, blurredTex.width, blurredTex.height), new Vector2(0.5f, 0.5f));
-
-        // 禁用场景中的 Blur GameObject（已由预模糊纹理替代）
-        var blurObj = GameObject.Find("PlayScreen")?.transform.Find("Blur");
-        if (blurObj != null)
+        try
         {
-            blurObj.gameObject.SetActive(false);
-            Debug.Log($"[{GetType().Name}] 已禁用 Blur GameObject（改用预模糊曲绘）");
+            var illustrationPath = Path.Combine(m_infoDir, "illustration.png");
+            if (string.IsNullOrEmpty(m_infoDir) || !File.Exists(illustrationPath))
+            {
+                Debug.LogWarning("[EditorInit] 曲绘文件缺失，跳过背景加载");
+                return;
+            }
+
+            var tex = m_imageTypeManager.GetTextureByString(
+                m_imageTypeManager.SetImageToString(illustrationPath));
+            if (tex == null)
+            {
+                Debug.LogWarning("[EditorInit] 曲绘纹理解析失败，跳过背景加载");
+                return;
+            }
+
+            // 预模糊曲绘纹理，替代场景中的 GrabPass Blur shader
+            var blurredTex = CreateBlurredTexture(tex);
+            if (blurredTex == null) return;
+
+            var playScreen = GameObject.Find("PlayScreen");
+            var bgImage = playScreen?.GetComponent<Image>();
+            if (bgImage == null)
+            {
+                Debug.LogWarning("[EditorInit] PlayScreen 或其 Image 组件缺失，跳过曲绘设置");
+                return;
+            }
+
+            bgImage.sprite = Sprite.Create(
+                blurredTex,
+                new Rect(0, 0, blurredTex.width, blurredTex.height),
+                new Vector2(0.5f, 0.5f));
+
+            // 禁用场景中的 Blur GameObject（已由预模糊纹理替代）
+            var blurObj = playScreen.transform.Find("Blur");
+            if (blurObj != null)
+            {
+                blurObj.gameObject.SetActive(false);
+                Debug.Log($"[{GetType().Name}] 已禁用 Blur GameObject（改用预模糊曲绘）");
+            }
+        }
+        catch (Exception ex)
+        {
+            Debug.LogError($"[{GetType().Name}] 加载曲绘失败: {ex}");
         }
     }
 
@@ -288,25 +333,34 @@ public class EditorInit : MonoBehaviour
     private IEnumerator LoadAudioClip()
     {
         var path = "file://" + Path.GetFullPath(Path.Combine(m_infoDir, "music.mp3"));
-        
+
         using (var www = UnityWebRequestMultimedia.GetAudioClip(path, AudioType.MPEG))
         {
             yield return www.SendWebRequest();
 
-            if (www.result == UnityWebRequest.Result.ConnectionError)
+            if (www.result != UnityWebRequest.Result.Success)
             {
                 Debug.LogError($"音频加载失败: {www.error}");
                 yield break;
             }
 
             var clip = DownloadHandlerAudioClip.GetContent(www);
+            if (clip == null || music == null)
+            {
+                Debug.LogWarning("[EditorInit] 音频剪辑或 AudioSource 为空，跳过时间初始化");
+                yield break;
+            }
+
             music.clip = clip;
-            
+
             // 初始化音乐时间信息
             var musicTime = Math.Round(clip.length, 2);
-            m_txtDisplayer.text = $"0.00/{musicTime}";
+            if (m_txtDisplayer != null)
+            {
+                m_txtDisplayer.text = $"0.00/{musicTime}";
+            }
             MusicTimeStampController.MusicTime = musicTime;
-            
+
             // 清理临时对象
             Destroy(m_portalHandler);
             Destroy(m_initHandler);

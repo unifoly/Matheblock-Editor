@@ -89,6 +89,17 @@ public class CubeManagerUI : MonoBehaviour
             m_cubeButton.onClick.RemoveListener(HandleCubeButtonClicked);
             m_cubeButton.onClick.AddListener(HandleCubeButtonClicked);
         }
+
+        // 失活→激活后恢复 CubeManager 事件订阅（面板已构建时列表才能继续自动刷新）
+        if (m_cubePanel != null && m_cubeManager != null)
+        {
+            m_cubeManager.CubeCreated -= OnCubeCreated;
+            m_cubeManager.CubeDeleted -= OnCubeDeleted;
+            m_cubeManager.ActiveCubeChanged -= OnActiveCubeChanged;
+            m_cubeManager.CubeCreated += OnCubeCreated;
+            m_cubeManager.CubeDeleted += OnCubeDeleted;
+            m_cubeManager.ActiveCubeChanged += OnActiveCubeChanged;
+        }
     }
 
     private void OnDisable()
@@ -178,7 +189,7 @@ public class CubeManagerUI : MonoBehaviour
             {
                 string name = child.gameObject.name;
                 dict[name] = btn;
-                btn.onClick.RemoveListener(() => callback(name));
+                // 注意：lambda 无法退订，BindDirectionButtons 仅在 Start 调用一次，故无需 Remove
                 btn.onClick.AddListener(() => callback(name));
             }
         }
@@ -854,7 +865,7 @@ public class CubeManagerUI : MonoBehaviour
     {
         var go = new GameObject(name, typeof(RectTransform));
         go.transform.SetParent(parent, false);
-        go.layer = 5; // UI Layer
+        go.layer = LayerConstants.Ui;
         return go;
     }
 

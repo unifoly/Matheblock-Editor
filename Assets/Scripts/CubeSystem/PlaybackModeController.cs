@@ -19,9 +19,6 @@ public class PlaybackModeController : MonoBehaviour
     // 网格淡入淡出时长
     private const float k_fadeDuration = 0.4f;
 
-    // Note 命中后保留时长（秒），到时清理
-    private const float k_noteRemoveDelay = 0.3f;
-
     // 标定线原始透明度（与 GridManager.CreateReferenceLine 一致）
     private const float k_refLineAlpha = 0.9f;
 
@@ -61,6 +58,7 @@ public class PlaybackModeController : MonoBehaviour
     // ---- 方体动画播放器 ----
     private ChartPlaybackController m_chartPlayback;
     private System.DateTime m_lastChartWriteTime;
+    private float m_lastChartCheckTime;
 
     // ---- 打击特效 ----
     private HitEffectManager m_hitEffect;
@@ -180,6 +178,11 @@ public class PlaybackModeController : MonoBehaviour
     private void CheckChartFileChanged()
     {
         if (string.IsNullOrEmpty(EditorInit.ChartPath)) return;
+
+        // 限频：每 0.5s 检查一次文件系统，避免每帧 File.Exists/GetLastWriteTime 系统调用
+        if (Time.unscaledTime - m_lastChartCheckTime < 0.5f) return;
+        m_lastChartCheckTime = Time.unscaledTime;
+
         string chartPath = System.IO.Path.Combine(EditorInit.ChartPath, "chart.tmp");
         if (!System.IO.File.Exists(chartPath)) return;
 
@@ -407,12 +410,12 @@ public class PlaybackModeController : MonoBehaviour
     private static void GetDirectionVectors(FaceDirection dir,
         out Vector3 fallingDir, out Vector3 laneAxis)
     {
+        // 默认值与 Up 一致（枚举四值已全覆盖，此处保证 out 参数明确赋值）
+        fallingDir = Vector3.up;
+        laneAxis = Vector3.right;
+
         switch (dir)
         {
-            case FaceDirection.Up:
-                fallingDir = Vector3.up;
-                laneAxis = Vector3.right;
-                break;
             case FaceDirection.Down:
                 fallingDir = Vector3.down;
                 laneAxis = Vector3.right;
@@ -424,10 +427,6 @@ public class PlaybackModeController : MonoBehaviour
             case FaceDirection.Right:
                 fallingDir = Vector3.right;
                 laneAxis = Vector3.up;
-                break;
-            default:
-                fallingDir = Vector3.up;
-                laneAxis = Vector3.right;
                 break;
         }
     }
@@ -476,16 +475,20 @@ public class PlaybackModeController : MonoBehaviour
         var cubeTransform = m_cubeManager.ActiveCubeTransform;
         int cubeLayer = m_cubeManager.CubeLayer;
 
+        // 流速影响有效预览窗口：流速越高，Note 下落越快，窗口越短（默认流速 30 时等于 k_lookAhead）
+        float flowSpeed = GetFlowSpeed(currentTime);
+        float effectiveLookAhead = k_lookAhead * 30f / Mathf.Max(0.1f, flowSpeed);
+
         // 生成即将到达的 Note
         foreach (var note in currentNotes)
         {
             float timeUntilHit = note.time - currentTime;
-            if (timeUntilHit > 0f && timeUntilHit <= k_lookAhead)
+            if (timeUntilHit > 0f && timeUntilHit <= effectiveLookAhead)
             {
                 long key = (long)note.lane * 100000L + (long)(note.time * 1000f);
                 if (!m_spawnedKeys.Contains(key))
                 {
-                    SpawnPlaybackNote(note, currentTime, fallingDir, laneAxis, cubeHalf, k_lookAhead);
+                    SpawnPlaybackNote(note, currentTime, fallingDir, laneAxis, cubeHalf, effectiveLookAhead);
                     m_spawnedKeys.Add(key);
                 }
             }

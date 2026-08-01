@@ -375,7 +375,7 @@ public class NotePlacementManager : MonoBehaviour
 
         var layerObj = new GameObject("NoteLayer", typeof(RectTransform));
         layerObj.transform.SetParent(transform, false);
-        layerObj.layer = 5; // UI Layer
+        layerObj.layer = LayerConstants.Ui; // UI Layer
 
         m_noteLayer = layerObj.GetComponent<RectTransform>();
         m_noteLayer.anchorMin = Vector2.zero;
@@ -397,7 +397,7 @@ public class NotePlacementManager : MonoBehaviour
     {
         m_selectionBoxVisual = new GameObject("SelectionBox", typeof(RectTransform));
         m_selectionBoxVisual.transform.SetParent(m_noteLayer, false);
-        m_selectionBoxVisual.layer = 5;
+        m_selectionBoxVisual.layer = LayerConstants.Ui;
 
         var rect = m_selectionBoxVisual.GetComponent<RectTransform>();
         rect.pivot = new Vector2(0.5f, 0.5f);
@@ -434,7 +434,7 @@ public class NotePlacementManager : MonoBehaviour
     {
         m_hoverIndicator = new GameObject("HoverIndicator", typeof(RectTransform));
         m_hoverIndicator.transform.SetParent(m_noteLayer, false);
-        m_hoverIndicator.layer = 5;
+        m_hoverIndicator.layer = LayerConstants.Ui;
 
         var rect = m_hoverIndicator.GetComponent<RectTransform>();
         rect.sizeDelta = new Vector2(m_noteSize, m_noteSize);
@@ -1011,7 +1011,7 @@ public class NotePlacementManager : MonoBehaviour
         // 创建新的 Note 视觉对象
         var go = new GameObject("Note", typeof(RectTransform));
         go.transform.SetParent(parent, false);
-        go.layer = 5; // UI Layer
+        go.layer = LayerConstants.Ui; // UI Layer
 
         var rect = go.GetComponent<RectTransform>();
         rect.sizeDelta = new Vector2(m_noteSize, m_noteSize);

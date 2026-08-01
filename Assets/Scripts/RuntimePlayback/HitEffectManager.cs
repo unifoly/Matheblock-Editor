@@ -20,10 +20,10 @@ namespace RuntimePlayback
 
         [Header("普通 Note 散射（Burst）")]
         [Tooltip("单次散射的粒子数量")]
-        [SerializeField] private int m_burstCount = 12;
+        [SerializeField] private int m_burstCount = 8;
         [Tooltip("Burst 粒子散射速度范围（单位/秒）")]
-        [SerializeField] private float m_burstSpeedMin = 0.6f;
-        [SerializeField] private float m_burstSpeedMax = 1.4f;
+        [SerializeField] private float m_burstSpeedMin = 0.3f;
+        [SerializeField] private float m_burstSpeedMax = 0.6f;
         [Tooltip("Burst 粒子存活时长（秒）")]
         [SerializeField] private float m_burstLife = 0.2f;
 
@@ -32,9 +32,9 @@ namespace RuntimePlayback
         [SerializeField] private int m_emitPerFrame = 1;
         [Tooltip("Hold 粒子散射速度范围（单位/秒）")]
         [SerializeField] private float m_emitSpeedMin = 0.3f;
-        [SerializeField] private float m_emitSpeedMax = 0.8f;
+        [SerializeField] private float m_emitSpeedMax = 0.6f;
         [Tooltip("Hold 粒子存活时长（秒）")]
-        [SerializeField] private float m_emitLife = 0.25f;
+        [SerializeField] private float m_emitLife = 0.2f;
 
         [Header("粒子外观")]
         [Tooltip("粒子颜色（橙色）")]
@@ -79,6 +79,14 @@ namespace RuntimePlayback
             for (int i = m_active.Count - 1; i >= 0; i--)
             {
                 HitParticle p = m_active[i];
+
+                // 父级方体被销毁时粒子随之销毁，直接移除避免 MissingReferenceException 刷屏
+                if (p.View == null)
+                {
+                    m_active.RemoveAt(i);
+                    continue;
+                }
+
                 p.RemainingLife -= dt;
 
                 if (p.RemainingLife <= 0f)
@@ -148,6 +156,12 @@ namespace RuntimePlayback
             Vector3 planeAxisA, Vector3 planeAxisB,
             float speedMin, float speedMax, float life, int layer)
         {
+            // 父级方体可能已被销毁（销毁对象 == null），提前归还避免 SetParent 异常
+            if (parent == null)
+            {
+                return;
+            }
+
             HitParticle p = m_pool.Get();
             p.View.layer = layer;
             p.View.transform.SetParent(parent, false);
@@ -164,6 +178,16 @@ namespace RuntimePlayback
             p.Renderer.color = m_particleColor;
 
             m_active.Add(p);
+        }
+
+        private void OnDestroy()
+        {
+            // 释放程序化生成的贴图，避免组件重建时纹理累积
+            if (m_squareSprite != null)
+            {
+                Destroy(m_squareSprite.texture);
+                Destroy(m_squareSprite);
+            }
         }
 
         private void OnReleaseParticle(HitParticle p)

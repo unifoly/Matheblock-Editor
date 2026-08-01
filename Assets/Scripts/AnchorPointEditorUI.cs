@@ -495,11 +495,13 @@ public class AnchorPointEditorUI : MonoBehaviour
         m_startValueInput.text = bar.startValue.ToString("F3");
         m_endValueInput.text = bar.endValue.ToString("F3");
 
-        // 缓动类型
-        m_easingDropdown.value = EaseDisplayNames.GetIndex(bar.easingType);
+        // 缓动类型：旧数据中 easingType 可能不在可用列表（GetIndex 返回 -1），回退 0。
+        // SetValueWithoutNotify 避免赋值触发 OnEasingChanged 静默改值并写盘
+        int easeIndex = EaseDisplayNames.GetIndex(bar.easingType);
+        m_easingDropdown.SetValueWithoutNotify(easeIndex >= 0 ? easeIndex : 0);
 
-        // 权重
-        m_weightSlider.value = bar.weight;
+        // 权重：SetValueWithoutNotify 避免打开面板时触发 OnWeightChanged 写盘
+        m_weightSlider.SetValueWithoutNotify(bar.weight);
         m_weightValueLabel.text = bar.weight.ToString("F2");
 
         // 全局模式：显示方体/轨道变更区域
@@ -906,7 +908,7 @@ public class AnchorPointEditorUI : MonoBehaviour
     {
         var go = new GameObject(name, typeof(RectTransform));
         go.transform.SetParent(parent, false);
-        go.layer = 5;
+        go.layer = LayerConstants.Ui;
         return go;
     }
 

@@ -728,7 +728,7 @@ public class InfoManagerUI : MonoBehaviour
     {
         var go = new GameObject(name, typeof(RectTransform));
         go.transform.SetParent(parent, false);
-        go.layer = 5; // UI Layer
+        go.layer = LayerConstants.Ui;
         return go;
     }
 

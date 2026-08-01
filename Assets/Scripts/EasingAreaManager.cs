@@ -159,9 +159,6 @@ public class EasingAreaManager : MonoBehaviour
     private float m_contentWidth;
     private float m_maxScroll;
 
-    // ---- 上次垂直滚动量（用于检测是否需要重绘） ----
-    private float m_lastGridScrollOffset = float.MinValue;
-
     // ---- 初始化标记 ----
     private bool m_needInitialRebuild;
 
@@ -453,7 +450,7 @@ public class EasingAreaManager : MonoBehaviour
         // ---- EasingViewport：右半区域容器，带遮罩裁剪 ----
         var viewportGo = new GameObject("EasingViewport", typeof(RectTransform));
         viewportGo.transform.SetParent(transform, false);
-        viewportGo.layer = 5;
+        viewportGo.layer = LayerConstants.Ui;
 
         m_easingViewport = viewportGo.GetComponent<RectTransform>();
         m_easingViewport.anchorMin = new Vector2(noteAreaRatio, 0);
@@ -474,7 +471,7 @@ public class EasingAreaManager : MonoBehaviour
         // ---- EasingContent：可水平滚动的内容容器 ----
         var contentGo = new GameObject("EasingContent", typeof(RectTransform));
         contentGo.transform.SetParent(viewportGo.transform, false);
-        contentGo.layer = 5;
+        contentGo.layer = LayerConstants.Ui;
 
         m_easingContent = contentGo.GetComponent<RectTransform>();
         m_easingContent.anchorMin = new Vector2(0, 0);
@@ -507,7 +504,7 @@ public class EasingAreaManager : MonoBehaviour
         {
             var lineGo = new GameObject($"EasingVLine_{i}", typeof(RectTransform));
             lineGo.transform.SetParent(m_easingContent, false);
-            lineGo.layer = 5;
+            lineGo.layer = LayerConstants.Ui;
 
             var rect = lineGo.GetComponent<RectTransform>();
             rect.anchorMin = new Vector2(0, 0);
@@ -532,7 +529,7 @@ public class EasingAreaManager : MonoBehaviour
     {
         var labelGo = new GameObject($"SlotLabel_{text}", typeof(RectTransform));
         labelGo.transform.SetParent(m_easingContent, false);
-        labelGo.layer = 5;
+        labelGo.layer = LayerConstants.Ui;
 
         var rect = labelGo.GetComponent<RectTransform>();
         rect.anchorMin = new Vector2(0, 1);
@@ -557,7 +554,7 @@ public class EasingAreaManager : MonoBehaviour
     {
         var barGo = new GameObject("BarLayer", typeof(RectTransform));
         barGo.transform.SetParent(m_easingContent, false);
-        barGo.layer = 5;
+        barGo.layer = LayerConstants.Ui;
 
         m_barLayer = barGo.GetComponent<RectTransform>();
         m_barLayer.anchorMin = new Vector2(0, 0);
@@ -574,7 +571,7 @@ public class EasingAreaManager : MonoBehaviour
     {
         var curveGo = new GameObject("CurveLayer", typeof(RectTransform));
         curveGo.transform.SetParent(m_easingContent, false);
-        curveGo.layer = 5;
+        curveGo.layer = LayerConstants.Ui;
 
         m_curveLayer = curveGo.GetComponent<RectTransform>();
         m_curveLayer.anchorMin = new Vector2(0, 0);
@@ -709,7 +706,7 @@ public class EasingAreaManager : MonoBehaviour
         // 起点标记：紫色水平线
         m_pendingMarker = new GameObject("PendingMarker", typeof(RectTransform));
         m_pendingMarker.transform.SetParent(m_barLayer, false);
-        m_pendingMarker.layer = 5;
+        m_pendingMarker.layer = LayerConstants.Ui;
 
         float slotCenter = m_lineSpacing * 0.5f + slot * m_lineSpacing;
         float barWidth = m_lineSpacing * m_barWidthRatio;
@@ -729,7 +726,7 @@ public class EasingAreaManager : MonoBehaviour
         // 预览矩形（从起点到鼠标当前位置）
         m_pendingPreview = new GameObject("PendingPreview", typeof(RectTransform));
         m_pendingPreview.transform.SetParent(m_barLayer, false);
-        m_pendingPreview.layer = 5;
+        m_pendingPreview.layer = LayerConstants.Ui;
 
         var previewRect = m_pendingPreview.GetComponent<RectTransform>();
         previewRect.anchorMin = new Vector2(0, 0.5f);
@@ -1303,7 +1300,7 @@ public class EasingAreaManager : MonoBehaviour
     {
         var barGo = new GameObject($"Bar_{slot}_{bar.startTime:F1}", typeof(RectTransform));
         barGo.transform.SetParent(m_barLayer, false);
-        barGo.layer = 5;
+        barGo.layer = LayerConstants.Ui;
 
         var rect = barGo.GetComponent<RectTransform>();
         rect.anchorMin = new Vector2(0, 0.5f);
@@ -1471,7 +1468,7 @@ public class EasingAreaManager : MonoBehaviour
 
         var go = new GameObject($"CurveSeg_{index}", typeof(RectTransform));
         go.transform.SetParent(m_curveLayer, false);
-        go.layer = 5;
+        go.layer = LayerConstants.Ui;
 
         var rect = go.GetComponent<RectTransform>();
         // 锚点设为左中 (0, 0.5)，与 CurveLayer 的 pivot 一致
@@ -1635,7 +1632,18 @@ public class EasingAreaManager : MonoBehaviour
     /// </summary>
     private bool EnsureDefaultInstantEvent(EasingSlotData slotData, EasingSlotConfig config)
     {
-        if (slotData == null || slotData.bars == null || slotData.bars.Count == 0 ||
+        if (slotData == null)
+        {
+            return false;
+        }
+
+        // bars 可能为 null（JSON 显式 null 字段），先初始化列表再判断
+        if (slotData.bars == null)
+        {
+            slotData.bars = new List<EasingBar>();
+        }
+
+        if (slotData.bars.Count == 0 ||
             !Mathf.Approximately(slotData.bars[0].startTime, 0f) ||
             !slotData.bars[0].isInstant)
         {
@@ -1865,7 +1873,7 @@ public class EasingAreaManager : MonoBehaviour
     {
         var globalGo = new GameObject("GlobalLayer", typeof(RectTransform));
         globalGo.transform.SetParent(m_easingContent, false);
-        globalGo.layer = 5;
+        globalGo.layer = LayerConstants.Ui;
 
         m_globalLayer = globalGo.GetComponent<RectTransform>();
         m_globalLayer.anchorMin = new Vector2(0, 0);
@@ -2169,7 +2177,7 @@ public class EasingAreaManager : MonoBehaviour
             $"GBar_{evt.cubeId}_{evt.slotIndex}_{evt.bar.startTime:F1}",
             typeof(RectTransform));
         barGo.transform.SetParent(m_globalLayer, false);
-        barGo.layer = 5;
+        barGo.layer = LayerConstants.Ui;
 
         var rect = barGo.GetComponent<RectTransform>();
         rect.anchorMin = new Vector2(0, 0.5f);
@@ -2183,7 +2191,7 @@ public class EasingAreaManager : MonoBehaviour
         // 事件代号标签（左下角）
         var codeLabelGo = new GameObject("EventCode", typeof(RectTransform));
         codeLabelGo.transform.SetParent(barGo.transform, false);
-        codeLabelGo.layer = 5;
+        codeLabelGo.layer = LayerConstants.Ui;
 
         var codeRect = codeLabelGo.GetComponent<RectTransform>();
         codeRect.anchorMin = new Vector2(0, 0);
@@ -2203,7 +2211,7 @@ public class EasingAreaManager : MonoBehaviour
         // 方体信息标签（右下角）
         var infoLabelGo = new GameObject("CubeInfo", typeof(RectTransform));
         infoLabelGo.transform.SetParent(barGo.transform, false);
-        infoLabelGo.layer = 5;
+        infoLabelGo.layer = LayerConstants.Ui;
 
         var infoRect = infoLabelGo.GetComponent<RectTransform>();
         infoRect.anchorMin = new Vector2(1, 0);
@@ -2538,7 +2546,7 @@ public class EasingAreaManager : MonoBehaviour
 
         m_pendingMarker = new GameObject("GlobalPendingMarker", typeof(RectTransform));
         m_pendingMarker.transform.SetParent(m_globalLayer, false);
-        m_pendingMarker.layer = 5;
+        m_pendingMarker.layer = LayerConstants.Ui;
 
         var rect = m_pendingMarker.GetComponent<RectTransform>();
         rect.anchorMin = new Vector2(0, 0.5f);

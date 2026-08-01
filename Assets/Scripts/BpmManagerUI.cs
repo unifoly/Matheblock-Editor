@@ -1024,8 +1024,12 @@ public class BpmManagerUI : MonoBehaviour
             }
 
             var jsonStr = JsonUtility.ToJson(data);
-            // 裁剪所有浮点数为两位小数（消除 IEEE 754 二进制近似噪声，如 0.01f → 0.0099999997...）
-            jsonStr = Regex.Replace(jsonStr, @"\d+\.\d{3,}", m => Math.Round(double.Parse(m.Value), 2).ToString("F2"));
+            // 消除 IEEE 754 二进制近似噪声（如 0.01f → 0.009999999...）。
+            // 用不区分区域设置的解析 + 保留 6 位小数：既清理浮点噪声，又不破坏
+            // notes/cubes 中真实的 3~6 位精度数据（旧的 2 位四舍五入会静默改动谱面）。
+            jsonStr = Regex.Replace(jsonStr, @"\d+\.\d{3,}",
+                m => Math.Round(double.Parse(m.Value, System.Globalization.CultureInfo.InvariantCulture), 6)
+                    .ToString("0.######", System.Globalization.CultureInfo.InvariantCulture));
             Debug.Log($"[{GetType().Name}] SaveBpm → .tmp: nodes={data.bpmNodes.Count}");
             File.WriteAllText(tmpPath, jsonStr);
 
@@ -1178,7 +1182,7 @@ public class BpmManagerUI : MonoBehaviour
     {
         var go = new GameObject(name, typeof(RectTransform));
         go.transform.SetParent(parent, false);
-        go.layer = 5; // UI Layer
+        go.layer = LayerConstants.Ui;
         return go;
     }
 

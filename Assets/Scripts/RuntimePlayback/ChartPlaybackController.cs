@@ -40,10 +40,16 @@ namespace RuntimePlayback
         public float CurrentTime => m_audioSource != null ? m_audioSource.time : 0f;
 
         /// <summary>设置音频源（驱动播放时间轴）</summary>
-        public void SetAudioSource(AudioSource source) { m_audioSource = source; }
+        public void SetAudioSource(AudioSource source)
+        {
+            m_audioSource = source;
+        }
 
         /// <summary>设置方体搜索根节点</summary>
-        public void SetCubeParent(Transform parent) { m_cubeParent = parent; }
+        public void SetCubeParent(Transform parent)
+        {
+            m_cubeParent = parent;
+        }
 
         #region 谱面加载
 
@@ -272,8 +278,10 @@ namespace RuntimePlayback
             if (!m_isPlaying) return;
             if (m_audioSource == null || m_chartData == null) return;
 
-            // 音频结束自动停止
-            if (!m_audioSource.isPlaying && m_audioSource.time >= m_audioSource.clip.length - 0.05f)
+            // 音频结束自动停止（clip 未分配时直接跳过，避免空引用）
+            if (m_audioSource.clip != null
+                && !m_audioSource.isPlaying
+                && m_audioSource.time >= m_audioSource.clip.length - 0.05f)
             {
                 Pause();
                 return;

@@ -99,12 +99,32 @@ public class ChartSelect : MonoBehaviour
             Debug.LogWarning($"[ChartSelect] 加载封面失败 (folder: {folderPath}): {ex.Message}");
         }
 
-        // 读取并解析JSON文件
-        var chartPath = Path.Combine(folderPath, "chart.json");
-        var readData = File.ReadAllText(chartPath);
-        var data = JsonUtility.FromJson<ChartData>(readData);
-        chartButton.transform.GetChild(1).GetComponent<TextMeshProUGUI>().text =
-            $"{data.info.MusicName}\n \n{data.info.Charter}";
+        // 读取并解析JSON文件（单目录损坏不应中断整个列表构建）
+        try
+        {
+            var chartPath = Path.Combine(folderPath, "chart.json");
+            if (!File.Exists(chartPath))
+            {
+                Debug.LogWarning($"[ChartSelect] 缺少 chart.json (folder: {folderPath})");
+                return;
+            }
+
+            var readData = File.ReadAllText(chartPath);
+            var data = JsonUtility.FromJson<ChartData>(readData);
+            if (data?.info == null)
+            {
+                Debug.LogWarning($"[ChartSelect] chart.json 格式无效 (folder: {folderPath})");
+                return;
+            }
+
+            chartButton.transform.GetChild(1).GetComponent<TextMeshProUGUI>().text =
+                $"{data.info.MusicName}\n \n{data.info.Charter}";
+        }
+        catch (Exception ex)
+        {
+            Debug.LogWarning($"[ChartSelect] 解析谱面失败 (folder: {folderPath}): {ex.Message}");
+            return;
+        }
 
         // 为每个按钮绑定独立的路径
         chartButton.GetComponent<Button>().onClick.AddListener(() => LoadEditorScene(folderPath));
@@ -176,9 +196,28 @@ public class ChartSelect : MonoBehaviour
 
         Directory.CreateDirectory(chartPath);
 
-        // 复制文件
-        File.Copy(MusicPathDisplay.GetComponent<TMP_InputField>().text, Path.Combine(chartPath, "music.mp3"));
-        File.Copy(IllustrationPathDisplay.GetComponent<TMP_InputField>().text, Path.Combine(chartPath, "illustration.png"));
+        // 复制文件（源路径缺失时提示并中止，避免 ArgumentException 与半成品目录）
+        try
+        {
+            var musicPath = MusicPathDisplay.GetComponent<TMP_InputField>().text;
+            var illustrationPath = IllustrationPathDisplay.GetComponent<TMP_InputField>().text;
+
+            if (string.IsNullOrEmpty(musicPath) || string.IsNullOrEmpty(illustrationPath))
+            {
+                Debug.LogWarning("[ChartSelect] 请先选择音乐与封面图片");
+                Directory.Delete(chartPath);
+                return;
+            }
+
+            File.Copy(musicPath, Path.Combine(chartPath, "music.mp3"));
+            File.Copy(illustrationPath, Path.Combine(chartPath, "illustration.png"));
+        }
+        catch (Exception ex)
+        {
+            Debug.LogError($"[ChartSelect] 复制文件失败: {ex.Message}");
+            Directory.Delete(chartPath, true);
+            return;
+        }
 
         // 创建JSON数据
         var info = new ChartInfo

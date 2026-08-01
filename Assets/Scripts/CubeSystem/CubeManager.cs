@@ -23,7 +23,7 @@ public class CubeManager : MonoBehaviour
 
     // ---- 方体渲染层 ----
     // 专用 Layer，CubeCamera 仅渲染此层，避免方体出现在主相机背景中
-    private const int k_cubeLayer = 8;
+    // （常量定义见 LayerConstants.Cube / LayerConstants.Ui）
     // 正交相机半高，控制方体在 RawImage 中的视觉大小
     private const float k_cameraOrthoSize = 0.8f;
     // 相机 Y 偏移：使方体顶棱对齐标定线（视口 1/4 处）
@@ -37,7 +37,7 @@ public class CubeManager : MonoBehaviour
     public RawImage CubeDisplay => m_cubeDisplay;
 
     /// <summary>方体渲染层（CubeCamera 仅渲染此层）</summary>
-    public int CubeLayer => k_cubeLayer;
+    public int CubeLayer => LayerConstants.Cube;
 
     /// <summary>方体渲染相机（供外部计算视野范围）</summary>
     public Camera CubeCamera => m_cubeCamera;
@@ -84,11 +84,6 @@ public class CubeManager : MonoBehaviour
     /// <summary>当前选中的方向</summary>
     public FaceDirection ActiveDirection => m_activeDirection;
 
-    private void Awake()
-    {
-        // LoadCubesFromJson 移至 Start，确保 EditorInit.Awake 已设置 ChartPath 并创建 chart.tmp
-    }
-
     private void Start()
     {
         // 从谱面目录加载已有方体数据（EditorInit.Awake 已在所有 Start 之前运行）
@@ -117,6 +112,17 @@ public class CubeManager : MonoBehaviour
 
         // 初始定位相机对准活跃方体
         UpdateCubeCameraPosition();
+    }
+
+    private void OnDestroy()
+    {
+        // 释放 RenderTexture，避免重复初始化（AddComponent/重载）时泄漏
+        if (m_cubeRenderTexture != null)
+        {
+            m_cubeRenderTexture.Release();
+            Destroy(m_cubeRenderTexture);
+            m_cubeRenderTexture = null;
+        }
     }
 
     /// <summary>
@@ -272,13 +278,13 @@ public class CubeManager : MonoBehaviour
     {
         var cubeGo = new GameObject($"Cube_{cubeData.cubeId}");
         cubeGo.transform.SetParent(transform, false);
-        cubeGo.layer = k_cubeLayer;
+        cubeGo.layer = LayerConstants.Cube;
 
         // 多方体沿 X 轴排列
         cubeGo.transform.localPosition = new Vector3(cubeData.cubeId * m_cubeSpacing, 0, 0);
 
         var visualizer = cubeGo.AddComponent<CubeVisualizer>();
-        visualizer.Initialize(cubeData.cubeId, k_cubeLayer, m_cubeShader);
+        visualizer.Initialize(cubeData.cubeId, LayerConstants.Cube, m_cubeShader);
 
         m_visualizers[cubeData.cubeId] = visualizer;
     }
@@ -299,9 +305,9 @@ public class CubeManager : MonoBehaviour
 
         var playScreenRect = playScreenObj.GetComponent<RectTransform>();
 
-        // 创建 RenderTexture（与 PlayScreen 尺寸一致，保证正确宽高比）
-        int texWidth = Mathf.RoundToInt(playScreenRect.rect.width);
-        int texHeight = Mathf.RoundToInt(playScreenRect.rect.height);
+        // 创建 RenderTexture（与 PlayScreen 尺寸一致，保证正确宽高比；最小 1x1 避免无效尺寸）
+        int texWidth = Mathf.Max(1, Mathf.RoundToInt(playScreenRect.rect.width));
+        int texHeight = Mathf.Max(1, Mathf.RoundToInt(playScreenRect.rect.height));
         m_cubeRenderTexture = new RenderTexture(texWidth, texHeight, 24, RenderTextureFormat.ARGB32);
 
         // 创建 CubeCamera（正交，仅渲染方体层，透明背景）
@@ -311,7 +317,7 @@ public class CubeManager : MonoBehaviour
         m_cubeCamera.backgroundColor = new Color(0, 0, 0, 0);
         m_cubeCamera.orthographic = true;
         m_cubeCamera.orthographicSize = k_cameraOrthoSize;
-        m_cubeCamera.cullingMask = 1 << k_cubeLayer;
+        m_cubeCamera.cullingMask = 1 << LayerConstants.Cube;
         m_cubeCamera.targetTexture = m_cubeRenderTexture;
         m_cubeCamera.depth = 100;
 
@@ -319,14 +325,14 @@ public class CubeManager : MonoBehaviour
         var mainCam = Camera.main;
         if (mainCam != null)
         {
-            mainCam.cullingMask &= ~(1 << k_cubeLayer);
+            mainCam.cullingMask &= ~(1 << LayerConstants.Cube);
         }
 
         // 创建 RawImage 插入 PlayScreen 第一个子物体位置（曲绘之上、网格之下）
         var displayGo = new GameObject("CubeDisplay", typeof(RectTransform));
         displayGo.transform.SetParent(playScreenRect, false);
         displayGo.transform.SetAsFirstSibling();
-        displayGo.layer = 5; // UI Layer
+        displayGo.layer = LayerConstants.Ui;
 
         var displayRect = displayGo.GetComponent<RectTransform>();
         displayRect.anchorMin = Vector2.zero;

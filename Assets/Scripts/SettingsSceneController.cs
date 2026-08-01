@@ -39,7 +39,15 @@ namespace HexMap
 
         private void Update()
         {
-            if (Input.GetKeyDown(KeyCode.Escape))
+            // 仅当 Setting 为活动场景时响应 Esc，避免 Additive 叠加在编辑器上时
+            // 拦截编辑器的 Esc 取消操作（如取消待定长条 / 关闭面板）
+            if (!gameObject.scene.isLoaded || !gameObject.scene.IsValid())
+            {
+                return;
+            }
+
+            if (SceneManager.GetActiveScene().name == "Setting"
+                && Input.GetKeyDown(KeyCode.Escape))
             {
                 GoBack();
             }

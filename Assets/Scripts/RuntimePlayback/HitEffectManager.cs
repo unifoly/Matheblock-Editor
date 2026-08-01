@@ -8,9 +8,8 @@ namespace RuntimePlayback
     /// 打击特效管理器：用对象池复用小方块粒子，渲染在方体渲染层（CubeLayer），
     /// 由 CubeCamera 输出到 RawImage，与 3D Note 同坐标系（方体本地空间）。
     ///
-    /// 使用方式：
-    /// - SpawnBurst：普通 Note 命中时的一次性散射（约 0.2s 消散）。
-    /// - EmitHold：Hold 持续期间每帧调用的持续散射，直到 Hold 结束。
+    /// 效果为"散射"粒子：Note 命中时在命中点向四周散射橙色小方块，
+    /// 溅射过程中逐渐减速并淡出（普通 Note 约 0.2s；Hold 持续散射直到 Hold 结束）。
     /// </summary>
     public class HitEffectManager : MonoBehaviour
     {
@@ -22,27 +21,31 @@ namespace RuntimePlayback
         [Tooltip("单次散射的粒子数量")]
         [SerializeField] private int m_burstCount = 8;
         [Tooltip("Burst 粒子散射速度范围（单位/秒）")]
-        [SerializeField] private float m_burstSpeedMin = 0.3f;
-        [SerializeField] private float m_burstSpeedMax = 0.6f;
+        [SerializeField] private float m_burstSpeedMin = 0.5f;
+        [SerializeField] private float m_burstSpeedMax = 0.7f;
         [Tooltip("Burst 粒子存活时长（秒）")]
-        [SerializeField] private float m_burstLife = 0.2f;
+        [SerializeField] private float m_burstLife = 0.75f;
 
         [Header("Hold 持续散射（Emit）")]
         [Tooltip("每帧（每次调用）生成的粒子数量")]
-        [SerializeField] private int m_emitPerFrame = 1;
+        [SerializeField] private int m_emitPerFrame = 2;
         [Tooltip("Hold 粒子散射速度范围（单位/秒）")]
-        [SerializeField] private float m_emitSpeedMin = 0.3f;
-        [SerializeField] private float m_emitSpeedMax = 0.6f;
+        [SerializeField] private float m_emitSpeedMin = 0.5f;
+        [SerializeField] private float m_emitSpeedMax = 0.7f;
         [Tooltip("Hold 粒子存活时长（秒）")]
-        [SerializeField] private float m_emitLife = 0.2f;
+        [SerializeField] private float m_emitLife = 0.75f;
 
         [Header("粒子外观")]
         [Tooltip("粒子颜色（橙色）")]
         [SerializeField] private Color m_particleColor = new Color(1f, 0.62f, 0.1f, 1f);
-        [Tooltip("粒子边长（世界单位）")]
-        [SerializeField] private float m_particleSize = 0.03f;
+        [Tooltip("粒子边长（世界单位，Note 约 0.18）")]
+        [SerializeField] private float m_particleSize = 0.025f;
         [Tooltip("渲染排序（需高于 Note 的 10）")]
         [SerializeField] private int m_sortingOrder = 20;
+
+        [Header("溅射缓动")]
+        [Tooltip("减速强度（每秒指数衰减系数，越大减速越快，溅射效果越明显）")]
+        [SerializeField] private float m_deceleration = 8f;
 
         /// <summary>单个粒子的运行时状态</summary>
         private sealed class HitParticle
@@ -79,14 +82,6 @@ namespace RuntimePlayback
             for (int i = m_active.Count - 1; i >= 0; i--)
             {
                 HitParticle p = m_active[i];
-
-                // 父级方体被销毁时粒子随之销毁，直接移除避免 MissingReferenceException 刷屏
-                if (p.View == null)
-                {
-                    m_active.RemoveAt(i);
-                    continue;
-                }
-
                 p.RemainingLife -= dt;
 
                 if (p.RemainingLife <= 0f)
@@ -96,11 +91,13 @@ namespace RuntimePlayback
                     continue;
                 }
 
-                // 在父级本地空间运动（父级是方体，旋转/移动时粒子跟随）
+                // 缓动减速：速度按指数衰减，溅射初段快、后段明显变慢直至近乎停止
+                float damp = Mathf.Exp(-m_deceleration * dt);
+                p.Velocity *= damp;
+                p.Spin *= damp;
                 p.View.transform.localPosition += p.Velocity * dt;
                 p.View.transform.localRotation *= Quaternion.Euler(0f, 0f, p.Spin * dt);
 
-                // 随时间线性淡出
                 Color c = p.Renderer.color;
                 c.a = Mathf.Clamp01(p.RemainingLife / p.MaxLife);
                 p.Renderer.color = c;
@@ -156,12 +153,6 @@ namespace RuntimePlayback
             Vector3 planeAxisA, Vector3 planeAxisB,
             float speedMin, float speedMax, float life, int layer)
         {
-            // 父级方体可能已被销毁（销毁对象 == null），提前归还避免 SetParent 异常
-            if (parent == null)
-            {
-                return;
-            }
-
             HitParticle p = m_pool.Get();
             p.View.layer = layer;
             p.View.transform.SetParent(parent, false);
@@ -178,16 +169,6 @@ namespace RuntimePlayback
             p.Renderer.color = m_particleColor;
 
             m_active.Add(p);
-        }
-
-        private void OnDestroy()
-        {
-            // 释放程序化生成的贴图，避免组件重建时纹理累积
-            if (m_squareSprite != null)
-            {
-                Destroy(m_squareSprite.texture);
-                Destroy(m_squareSprite);
-            }
         }
 
         private void OnReleaseParticle(HitParticle p)

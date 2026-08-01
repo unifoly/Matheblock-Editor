@@ -143,13 +143,6 @@ namespace HexMap
                     BindSlider(slider, name);
                 }
 
-                // 开关
-                var toggle = child.GetComponent<Toggle>();
-                if (toggle != null && name.StartsWith("Row_"))
-                {
-                    BindToggle(toggle, name);
-                }
-
                 // 输入框
                 var inputField = child.GetComponent<TMP_InputField>();
                 if (inputField != null && name.StartsWith("Row_"))
@@ -225,20 +218,6 @@ namespace HexMap
                 inputField.text = SettingsDataManager.AutoSaveMinutes.ToString();
                 SettingsDataManager.Save();
             });
-        }
-
-        private void BindToggle(Toggle toggle, string rowName)
-        {
-            if (rowName == "Row_Fullscreen")
-            {
-                toggle.isOn = SettingsDataManager.IsFullscreen;
-                toggle.onValueChanged.AddListener(v =>
-                {
-                    SettingsDataManager.IsFullscreen = v;
-                    SettingsDataManager.ApplySettings();
-                    SettingsDataManager.Save();
-                });
-            }
         }
 
         private void BindDropdown(TMP_Dropdown dropdown, string rowName)

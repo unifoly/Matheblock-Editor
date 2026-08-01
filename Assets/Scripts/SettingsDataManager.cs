@@ -21,7 +21,6 @@ namespace HexMap
             public float masterVolume = 1f;
             public float musicVolume = 1f;
             public float sfxVolume = 1f;
-            public bool isFullscreen = true;
             public int qualityLevel = 2;
             public int resolutionIndex = 0;
             public int autoSaveMinutes = 10;
@@ -30,7 +29,6 @@ namespace HexMap
         public static float MasterVolume { get; set; } = 1f;
         public static float MusicVolume { get; set; } = 1f;
         public static float SFXVolume { get; set; } = 1f;
-        public static bool IsFullscreen { get; set; } = true;
         public static int QualityLevel { get; set; } = 2;
         public static int ResolutionIndex { get; set; } = 0;
 
@@ -100,7 +98,6 @@ namespace HexMap
                     MasterVolume = data.masterVolume;
                     MusicVolume = data.musicVolume;
                     SFXVolume = data.sfxVolume;
-                    IsFullscreen = data.isFullscreen;
                     QualityLevel = data.qualityLevel;
                     ResolutionIndex = data.resolutionIndex;
                     AutoSaveMinutes = data.autoSaveMinutes;
@@ -117,8 +114,7 @@ namespace HexMap
         /// </summary>
         private static void MigrateFromPlayerPrefs()
         {
-            bool hasOldData = PlayerPrefs.HasKey("Settings_MasterVolume")
-                              || PlayerPrefs.HasKey("Settings_Fullscreen");
+            bool hasOldData = PlayerPrefs.HasKey("Settings_MasterVolume");
 
             if (!hasOldData)
             {
@@ -129,7 +125,6 @@ namespace HexMap
             MasterVolume = PlayerPrefs.GetFloat("Settings_MasterVolume", 1f);
             MusicVolume = PlayerPrefs.GetFloat("Settings_MusicVolume", 1f);
             SFXVolume = PlayerPrefs.GetFloat("Settings_SFXVolume", 1f);
-            IsFullscreen = PlayerPrefs.GetInt("Settings_Fullscreen", 1) == 1;
             QualityLevel = PlayerPrefs.GetInt("Settings_QualityLevel", 2);
             ResolutionIndex = PlayerPrefs.GetInt("Settings_ResolutionIndex", 0);
 
@@ -140,7 +135,6 @@ namespace HexMap
             PlayerPrefs.DeleteKey("Settings_MasterVolume");
             PlayerPrefs.DeleteKey("Settings_MusicVolume");
             PlayerPrefs.DeleteKey("Settings_SFXVolume");
-            PlayerPrefs.DeleteKey("Settings_Fullscreen");
             PlayerPrefs.DeleteKey("Settings_QualityLevel");
             PlayerPrefs.DeleteKey("Settings_ResolutionIndex");
             PlayerPrefs.Save();
@@ -155,7 +149,6 @@ namespace HexMap
                 masterVolume = MasterVolume,
                 musicVolume = MusicVolume,
                 sfxVolume = SFXVolume,
-                isFullscreen = IsFullscreen,
                 qualityLevel = QualityLevel,
                 resolutionIndex = ResolutionIndex,
                 autoSaveMinutes = AutoSaveMinutes
@@ -176,7 +169,6 @@ namespace HexMap
         {
             AudioListener.volume = MasterVolume;
             QualitySettings.SetQualityLevel(QualityLevel, true);
-            Screen.fullScreen = IsFullscreen;
         }
 
         public static void ResetAll()
@@ -184,7 +176,6 @@ namespace HexMap
             MasterVolume = 1f;
             MusicVolume = 1f;
             SFXVolume = 1f;
-            IsFullscreen = true;
             QualityLevel = 2;
             ResolutionIndex = 0;
             AutoSaveMinutes = 10;

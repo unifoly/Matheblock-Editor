@@ -580,7 +580,7 @@ public class PlaybackModeController : MonoBehaviour
                 {
                     pb.View.transform.localPosition = pb.EndPos;
 
-                    // 打击特效：命中瞬间一次性橙色方块散射（0.2s 消散）
+                    // 打击特效：命中瞬间在命中点散射橙色小方块（0.2s 消散）
                     if (!pb.HitEffectStarted)
                     {
                         pb.HitEffectStarted = true;

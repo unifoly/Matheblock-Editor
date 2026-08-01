@@ -1,6 +1,7 @@
 using System;
 using System.Collections;
 using System.IO;
+using HexMap;
 using TMPro;
 using UnityEngine;
 using UnityEngine.Networking;
@@ -18,6 +19,9 @@ public class EditorInit : MonoBehaviour
     private GameObject m_portalHandler;
     private GameObject m_initHandler;
     private ImageTypeManager m_imageTypeManager;
+
+    // 自动保存计时
+    private float m_autoSaveTimer;
 
     private void Awake()
     {
@@ -79,6 +83,26 @@ public class EditorInit : MonoBehaviour
     {
         // 每帧轮询撤回/重做快捷键（Ctrl+Z / Ctrl+Y / Ctrl+Shift+Z）
         UndoRedoManager.ProcessKeyboardShortcuts();
+
+        // 自动保存：达到设置的间隔分钟数时持久化到 chart.json
+        ProcessAutoSave();
+    }
+
+    /// <summary>
+    /// 自动保存逻辑：根据 SettingsDataManager.AutoSaveMinutes 间隔（分钟），
+    /// 每帧累加计时，到达间隔后调用 PersistToChartJson()。0 表示关闭。
+    /// </summary>
+    private void ProcessAutoSave()
+    {
+        int minutes = SettingsDataManager.AutoSaveMinutes;
+        if (minutes <= 0) return;
+
+        m_autoSaveTimer += Time.deltaTime;
+        if (m_autoSaveTimer >= minutes * 60f)
+        {
+            m_autoSaveTimer = 0f;
+            PersistToChartJson();
+        }
     }
 
     private void InitializeGridSystem()

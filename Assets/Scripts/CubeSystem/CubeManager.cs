@@ -17,6 +17,10 @@ public class CubeManager : MonoBehaviour
     [Tooltip("多方体之间的间距（X轴方向）")]
     [SerializeField] private float m_cubeSpacing = 2f;
 
+    [Header("Shader")]
+    [Tooltip("方体渲染 Shader（Unlit/CubeUnlit）。如未指定将尝试 Shader.Find 加载。")]
+    [SerializeField] private Shader m_cubeShader;
+
     // ---- 方体渲染层 ----
     // 专用 Layer，CubeCamera 仅渲染此层，避免方体出现在主相机背景中
     private const int k_cubeLayer = 8;
@@ -274,7 +278,7 @@ public class CubeManager : MonoBehaviour
         cubeGo.transform.localPosition = new Vector3(cubeData.cubeId * m_cubeSpacing, 0, 0);
 
         var visualizer = cubeGo.AddComponent<CubeVisualizer>();
-        visualizer.Initialize(cubeData.cubeId, k_cubeLayer);
+        visualizer.Initialize(cubeData.cubeId, k_cubeLayer, m_cubeShader);
 
         m_visualizers[cubeData.cubeId] = visualizer;
     }

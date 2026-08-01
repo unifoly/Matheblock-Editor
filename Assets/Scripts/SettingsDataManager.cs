@@ -25,6 +25,7 @@ namespace HexMap
             public bool isFullscreen = true;
             public int qualityLevel = 2;
             public int resolutionIndex = 0;
+            public int autoSaveMinutes = 10;
         }
 
         public static float MasterVolume { get; set; } = 1f;
@@ -33,6 +34,11 @@ namespace HexMap
         public static bool IsFullscreen { get; set; } = true;
         public static int QualityLevel { get; set; } = 2;
         public static int ResolutionIndex { get; set; } = 0;
+
+        /// <summary>
+        /// 自动保存间隔（分钟），0 表示关闭自动保存
+        /// </summary>
+        public static int AutoSaveMinutes { get; set; } = 10;
 
         /// <summary>
         /// 持久化文件完整路径
@@ -90,6 +96,7 @@ namespace HexMap
                     IsFullscreen = data.isFullscreen;
                     QualityLevel = data.qualityLevel;
                     ResolutionIndex = data.resolutionIndex;
+                    AutoSaveMinutes = data.autoSaveMinutes;
                 }
             }
             catch (Exception ex)
@@ -143,7 +150,8 @@ namespace HexMap
                 sfxVolume = SFXVolume,
                 isFullscreen = IsFullscreen,
                 qualityLevel = QualityLevel,
-                resolutionIndex = ResolutionIndex
+                resolutionIndex = ResolutionIndex,
+                autoSaveMinutes = AutoSaveMinutes
             };
 
             try
@@ -172,6 +180,7 @@ namespace HexMap
             IsFullscreen = true;
             QualityLevel = 2;
             ResolutionIndex = 0;
+            AutoSaveMinutes = 10;
             Save();
         }
     }

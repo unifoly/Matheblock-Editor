@@ -60,6 +60,14 @@ public class NotePlacementManager : MonoBehaviour
     [Tooltip("未指定图片时的回退颜色")]
     [SerializeField] private Color m_fallbackColor = new Color(0.8f, 0.8f, 0.8f, 1f);
 
+    [Header("批量选择设置")]
+    [Tooltip("选中 Note 的高亮颜色")]
+    [SerializeField] private Color m_selectedColor = new Color(0.3f, 0.8f, 1f, 1f);
+    [Tooltip("框选区域填充颜色")]
+    [SerializeField] private Color m_selectionBoxColor = new Color(0.3f, 0.8f, 1f, 0.2f);
+    [Tooltip("点击与拖拽判定阈值（像素）")]
+    [SerializeField] private float m_clickThreshold = 6f;
+
     // Note 快捷键的 Action 名（与 SettingsPageBuilder 中一致，用于 KeyBindingsStore 持久化）
     private const string k_actionClick = "Note_Click";
     private const string k_actionFlick = "Note_Flick";
@@ -74,6 +82,8 @@ public class NotePlacementManager : MonoBehaviour
 
     private GridManager m_gridManager;
     private RectTransform m_playScreenRect;
+    // 放映模式控制器引用（Note 移动/删除后通知其清除 3D 预览）
+    private PlaybackModeController m_playbackController;
 
     // Note 渲染层：独立于 GridContainer，确保 Note 始终渲染在网格线之上
     private RectTransform m_noteLayer;
@@ -89,6 +99,41 @@ public class NotePlacementManager : MonoBehaviour
     private bool m_isHovering;
     private int m_hoveredLane;
     private float m_hoveredTime;
+
+    // ---- 批量选择状态 ----
+    // Shift+Click 的锚点索引（上次单击选中的 Note）
+    private int m_selectionAnchorIndex = -1;
+    // 框选进行中
+    private bool m_isBoxSelecting;
+    // 集体移动进行中
+    private bool m_isMoving;
+    // 鼠标按下时可能是点击（未超过拖拽阈值）
+    private bool m_isPotentialClick;
+    // 鼠标按下时命中的 Note 索引（-1=空白区域，>=0=Note 索引）
+    private int m_mouseDownNoteIndex = -1;
+    // 鼠标按下时的屏幕坐标和本地坐标
+    private Vector2 m_mouseDownScreenPos;
+    private Vector2 m_mouseDownLocalPos;
+    // 框选视觉对象
+    private GameObject m_selectionBoxVisual;
+
+    // ---- 集体移动状态 ----
+    // 移动起始的轨道和时间（鼠标按下时吸附后的值）
+    private int m_moveStartLane;
+    private float m_moveStartTime;
+    // 移动前后的 Note 位置快照（供撤回/重做使用）
+    private readonly List<MoveSnapshot> m_moveBefore = new List<MoveSnapshot>();
+    private readonly List<MoveSnapshot> m_moveAfter = new List<MoveSnapshot>();
+
+    /// <summary>移动操作的位置快照</summary>
+    private struct MoveSnapshot
+    {
+        public int Index;
+        public int Lane;
+        public float Time;
+        public float EndTime;
+        public float CachedLocalX;
+    }
 
     // 标记是否已从 JSON 加载过 Note（仅加载一次）
     private bool m_notesLoaded;
@@ -115,6 +160,10 @@ public class NotePlacementManager : MonoBehaviour
         public float EndTime;
         // Hold 专用：中间和尾部视觉对象（head 在 View 中）
         public List<GameObject> ExtraViews;
+        // 是否被选中（批量选择）
+        public bool IsSelected;
+        // 放置时的原始颜色（取消选中时恢复）
+        public Color OriginalColor = Color.white;
     }
 
     // ---- JSON 序列化用类（与 BpmManagerUI 保持字段一致，额外增加 notes）----
@@ -149,6 +198,7 @@ public class NotePlacementManager : MonoBehaviour
     {
         m_playScreenRect = GetComponent<RectTransform>();
         CacheGridManager();
+        m_playbackController = GetComponent<PlaybackModeController>();
         LoadHotkeys();
     }
 
@@ -241,8 +291,10 @@ public class NotePlacementManager : MonoBehaviour
         }
 
         UpdateHover();
+        HandleSelectionInput();
         HandlePlacementInput();
         UpdateNotePositions();
+        UpdateSelectionVisuals();
     }
 
     /// <summary>
@@ -277,15 +329,23 @@ public class NotePlacementManager : MonoBehaviour
                 // Hold 中间和尾部也要更新位置
                 if (note.Type == NoteType.Hold && note.ExtraViews != null)
                 {
+                    float holdHeight = Mathf.Abs(endY - localY);
+
                     foreach (var v in note.ExtraViews)
                     {
                         if (v == null) continue;
                         v.SetActive(true);
                         var img = v.GetComponent<Image>();
+                        var vRect = v.GetComponent<RectTransform>();
                         // 中间部分：位置在中点（通过 sprite 判断）
                         if (img != null && img.sprite == m_holdMidSprite)
                         {
                             v.transform.localPosition = new Vector3(note.CachedLocalX, (localY + endY) * 0.5f, 0);
+                            // 更新中间部分高度（缩放或移动后像素距离可能变化）
+                            if (vRect != null && holdHeight > 0.1f)
+                            {
+                                vRect.sizeDelta = new Vector2(m_noteSize, holdHeight);
+                            }
                         }
                         else
                         {
@@ -327,6 +387,27 @@ public class NotePlacementManager : MonoBehaviour
         m_noteLayer.SetAsLastSibling();
 
         CreateHoverIndicator();
+        CreateSelectionBox();
+    }
+
+    /// <summary>
+    /// 创建框选视觉对象（半透明矩形，拖拽时显示）
+    /// </summary>
+    private void CreateSelectionBox()
+    {
+        m_selectionBoxVisual = new GameObject("SelectionBox", typeof(RectTransform));
+        m_selectionBoxVisual.transform.SetParent(m_noteLayer, false);
+        m_selectionBoxVisual.layer = 5;
+
+        var rect = m_selectionBoxVisual.GetComponent<RectTransform>();
+        rect.pivot = new Vector2(0.5f, 0.5f);
+        rect.sizeDelta = Vector2.zero;
+
+        var img = m_selectionBoxVisual.AddComponent<Image>();
+        img.color = m_selectionBoxColor;
+        img.raycastTarget = false;
+
+        m_selectionBoxVisual.SetActive(false);
     }
 
     /// <summary>
@@ -372,6 +453,14 @@ public class NotePlacementManager : MonoBehaviour
     {
         if (m_playScreenRect == null || m_noteLayer == null || m_hoverIndicator == null) return;
 
+        // 框选或移动进行中时隐藏悬停指示器
+        if (m_isBoxSelecting || m_isMoving)
+        {
+            m_isHovering = false;
+            m_hoverIndicator.SetActive(false);
+            return;
+        }
+
         Vector2 localPoint;
         RectTransformUtility.ScreenPointToLocalPointInRectangle(
             m_playScreenRect, Input.mousePosition, null, out localPoint);
@@ -414,10 +503,17 @@ public class NotePlacementManager : MonoBehaviour
             return;
         }
 
-        // Delete 键：删除悬停位置的 Note
+        // Delete 键：有选中时批量删除，无选中时删除悬停位置的 Note
         if (m_deleteCombo.IsPressed())
         {
-            DeleteNoteAtHover();
+            if (HasSelection)
+            {
+                DeleteSelectedNotes();
+            }
+            else
+            {
+                DeleteNoteAtHover();
+            }
             return;
         }
 
@@ -648,7 +744,8 @@ public class NotePlacementManager : MonoBehaviour
             EndTime = endTime,
             View = headView,
             CachedLocalX = cachedX,
-            ExtraViews = extraViews
+            ExtraViews = extraViews,
+            OriginalColor = m_holdTailSprite != null ? Color.white : m_fallbackColor
         });
     }
 
@@ -715,7 +812,8 @@ public class NotePlacementManager : MonoBehaviour
             Lane = lane,
             Time = time,
             View = view,
-            CachedLocalX = cachedX
+            CachedLocalX = cachedX,
+            OriginalColor = GetSpriteForType(type) != null ? Color.white : m_fallbackColor
         });
     }
 
@@ -823,6 +921,9 @@ public class NotePlacementManager : MonoBehaviour
 
         // 取消 Hold 等待状态
         CancelHoldPending();
+
+        // 清除选择状态
+        m_selectionAnchorIndex = -1;
 
         m_notes.Clear();
     }
@@ -940,6 +1041,661 @@ public class NotePlacementManager : MonoBehaviour
         }
     }
 
+    #region 批量选择
+
+    /// <summary>当前是否有选中的 Note</summary>
+    public bool HasSelection
+    {
+        get
+        {
+            foreach (var note in m_notes)
+            {
+                if (note.IsSelected) return true;
+            }
+            return false;
+        }
+    }
+
+    /// <summary>获取选中 Note 的数量</summary>
+    public int SelectedCount
+    {
+        get
+        {
+            int count = 0;
+            foreach (var note in m_notes)
+            {
+                if (note.IsSelected) count++;
+            }
+            return count;
+        }
+    }
+
+    // ---- 修饰键检测 ----
+
+    private static bool IsCtrlHeld()
+    {
+        return Input.GetKey(KeyCode.LeftControl) || Input.GetKey(KeyCode.RightControl);
+    }
+
+    private static bool IsShiftHeld()
+    {
+        return Input.GetKey(KeyCode.LeftShift) || Input.GetKey(KeyCode.RightShift);
+    }
+
+    // ---- 鼠标交互主入口 ----
+
+    /// <summary>
+    /// 处理鼠标选择交互：左键单击选择/Ctrl+Click/Shift+Click，左键拖拽框选或移动。
+    /// 无修饰键 + 点击 Note + 拖拽 -> 集体移动；点击空白 + 拖拽 -> 框选。
+    /// </summary>
+    private void HandleSelectionInput()
+    {
+        if (m_playScreenRect == null || m_noteLayer == null || m_gridManager == null) return;
+
+        // 文本输入框获焦时跳过选择操作
+        if (UndoRedoManager.IsTextInputFocused()) return;
+
+        // 将鼠标位置转换为 PlayScreen 本地坐标
+        Vector2 localPoint;
+        RectTransformUtility.ScreenPointToLocalPointInRectangle(
+            m_playScreenRect, Input.mousePosition, null, out localPoint);
+
+        bool inNoteArea = m_gridManager.IsInNoteArea(localPoint.x)
+                          && Mathf.Abs(localPoint.y) <= m_gridManager.ViewportHeight * 0.5f;
+
+        // 鼠标按下：记录起点，判定是点击 Note 还是空白区域
+        if (Input.GetMouseButtonDown(0) && inNoteArea)
+        {
+            m_isPotentialClick = true;
+            m_mouseDownScreenPos = Input.mousePosition;
+            m_mouseDownLocalPos = localPoint;
+            m_mouseDownNoteIndex = -1;
+
+            // 无修饰键 + 点击 Note：选中并准备移动
+            if (!IsCtrlHeld() && !IsShiftHeld())
+            {
+                int noteIndex = FindNoteAtPosition(localPoint);
+                if (noteIndex >= 0)
+                {
+                    // 未选中的 Note 先单选（Windows 行为：点击即选中）
+                    if (!m_notes[noteIndex].IsSelected)
+                    {
+                        SelectSingle(noteIndex);
+                        UpdateSelectionVisuals();
+                    }
+                    m_mouseDownNoteIndex = noteIndex;
+                    m_selectionAnchorIndex = noteIndex;
+
+                    // 记录移动前快照
+                    m_moveStartLane = m_gridManager.LocalXToLane(localPoint.x);
+                    m_moveStartTime = SnapToBeat(m_gridManager.LocalYToTime(localPoint.y));
+                    RecordMoveSnapshots();
+                }
+            }
+        }
+
+        // 鼠标按住：超过拖拽阈值时进入框选或移动
+        if (m_isPotentialClick && Input.GetMouseButton(0))
+        {
+            float dragDist = Vector2.Distance(Input.mousePosition, m_mouseDownScreenPos);
+
+            if (dragDist > m_clickThreshold && !m_isBoxSelecting && !m_isMoving)
+            {
+                if (m_mouseDownNoteIndex >= 0)
+                {
+                    // 在 Note 上拖拽 -> 集体移动
+                    m_isMoving = true;
+                }
+                else
+                {
+                    // 在空白区域拖拽 -> 框选
+                    m_isBoxSelecting = true;
+                    m_selectionBoxVisual.SetActive(true);
+                }
+            }
+
+            if (m_isMoving)
+            {
+                UpdateMove(localPoint);
+            }
+            else if (m_isBoxSelecting)
+            {
+                UpdateSelectionBox(localPoint);
+            }
+        }
+
+        // 鼠标抬起：判定点击 / 框选 / 移动
+        if (Input.GetMouseButtonUp(0))
+        {
+            if (m_isMoving)
+            {
+                CommitMove();
+                m_isMoving = false;
+            }
+            else if (m_isBoxSelecting)
+            {
+                bool additive = IsCtrlHeld();
+                FinalizeBoxSelection(localPoint, additive);
+                m_isBoxSelecting = false;
+                m_selectionBoxVisual.SetActive(false);
+            }
+            else if (m_isPotentialClick && inNoteArea)
+            {
+                // 单击（未超过拖拽阈值）
+                if (m_mouseDownNoteIndex < 0)
+                {
+                    // 点击空白或带修饰键 -> 走选择逻辑
+                    HandleClickSelection(localPoint);
+                }
+                // 点击 Note 且无修饰键：已在 MouseDown 选中，无需重复处理
+            }
+
+            m_isPotentialClick = false;
+            m_mouseDownNoteIndex = -1;
+        }
+
+        // Escape：取消所有选择（Hold 等待状态由 HandlePlacementInput 优先处理）
+        if (Input.GetKeyDown(KeyCode.Escape) && !m_holdPending)
+        {
+            ClearSelection();
+        }
+
+        // Ctrl+A：全选
+        if (IsCtrlHeld() && Input.GetKeyDown(KeyCode.A))
+        {
+            SelectAll();
+        }
+    }
+
+    /// <summary>
+    /// 处理单击选择：根据修饰键决定选择模式。
+    /// 无修饰键 -> 单选；Ctrl -> 切换选中；Shift -> 范围选择。
+    /// </summary>
+    private void HandleClickSelection(Vector2 localPoint)
+    {
+        int noteIndex = FindNoteAtPosition(localPoint);
+        bool ctrl = IsCtrlHeld();
+        bool shift = IsShiftHeld();
+
+        if (noteIndex >= 0)
+        {
+            // 点击了 Note
+            if (shift && m_selectionAnchorIndex >= 0)
+            {
+                RangeSelect(m_selectionAnchorIndex, noteIndex);
+            }
+            else if (ctrl)
+            {
+                ToggleSelection(noteIndex);
+                m_selectionAnchorIndex = noteIndex;
+            }
+            else
+            {
+                SelectSingle(noteIndex);
+                m_selectionAnchorIndex = noteIndex;
+            }
+        }
+        else
+        {
+            // 点击空白区域：无修饰键时清除选择
+            if (!ctrl && !shift)
+            {
+                ClearSelection();
+            }
+        }
+
+        UpdateSelectionVisuals();
+    }
+
+    // ---- 命中检测 ----
+
+    /// <summary>
+    /// 在指定本地坐标处查找 Note（命中检测）。
+    /// 返回 m_notes 中的索引，未命中返回 -1。
+    /// </summary>
+    private int FindNoteAtPosition(Vector2 localPoint)
+    {
+        float halfSize = m_noteSize * 0.5f;
+
+        for (int i = 0; i < m_notes.Count; i++)
+        {
+            var note = m_notes[i];
+            if (note.View == null || !note.View.activeSelf) continue;
+
+            // X 轴命中检测
+            if (Mathf.Abs(localPoint.x - note.CachedLocalX) > halfSize) continue;
+
+            float noteY = m_gridManager.TimeToLocalY(note.Time);
+
+            // Hold 类型：检测整个时间范围
+            if (note.Type == NoteType.Hold)
+            {
+                float endY = m_gridManager.TimeToLocalY(note.EndTime);
+                float minY = Mathf.Min(noteY, endY) - halfSize;
+                float maxY = Mathf.Max(noteY, endY) + halfSize;
+
+                if (localPoint.y >= minY && localPoint.y <= maxY)
+                {
+                    return i;
+                }
+            }
+            else
+            {
+                if (Mathf.Abs(localPoint.y - noteY) <= halfSize)
+                {
+                    return i;
+                }
+            }
+        }
+
+        return -1;
+    }
+
+    // ---- 选择操作 ----
+
+    /// <summary>
+    /// 单选：仅选中指定 Note，清除其他选择
+    /// </summary>
+    private void SelectSingle(int index)
+    {
+        for (int i = 0; i < m_notes.Count; i++)
+        {
+            m_notes[i].IsSelected = (i == index);
+        }
+    }
+
+    /// <summary>
+    /// 切换选中状态（Ctrl+Click）
+    /// </summary>
+    private void ToggleSelection(int index)
+    {
+        if (index >= 0 && index < m_notes.Count)
+        {
+            m_notes[index].IsSelected = !m_notes[index].IsSelected;
+        }
+    }
+
+    /// <summary>
+    /// 范围选择（Shift+Click）：选中锚点与当前 Note 之间（按时间）的所有 Note
+    /// </summary>
+    private void RangeSelect(int anchorIndex, int targetIndex)
+    {
+        if (anchorIndex < 0 || anchorIndex >= m_notes.Count) return;
+        if (targetIndex < 0 || targetIndex >= m_notes.Count) return;
+
+        float minTime = Mathf.Min(m_notes[anchorIndex].Time, m_notes[targetIndex].Time);
+        float maxTime = Mathf.Max(m_notes[anchorIndex].Time, m_notes[targetIndex].Time);
+
+        foreach (var note in m_notes)
+        {
+            // Hold 类型用 EndTime 扩展范围
+            float noteMaxTime = note.Type == NoteType.Hold
+                ? Mathf.Max(note.Time, note.EndTime)
+                : note.Time;
+
+            if (note.Time >= minTime && note.Time <= maxTime
+                || noteMaxTime >= minTime && noteMaxTime <= maxTime)
+            {
+                note.IsSelected = true;
+            }
+        }
+    }
+
+    /// <summary>
+    /// 清除所有选择
+    /// </summary>
+    public void ClearSelection()
+    {
+        foreach (var note in m_notes)
+        {
+            note.IsSelected = false;
+        }
+        m_selectionAnchorIndex = -1;
+        UpdateSelectionVisuals();
+    }
+
+    /// <summary>
+    /// 全选（Ctrl+A）
+    /// </summary>
+    private void SelectAll()
+    {
+        foreach (var note in m_notes)
+        {
+            note.IsSelected = true;
+        }
+        UpdateSelectionVisuals();
+    }
+
+    // ---- 框选 ----
+
+    /// <summary>
+    /// 更新框选矩形视觉位置
+    /// </summary>
+    private void UpdateSelectionBox(Vector2 currentLocal)
+    {
+        float minX = Mathf.Min(m_mouseDownLocalPos.x, currentLocal.x);
+        float maxX = Mathf.Max(m_mouseDownLocalPos.x, currentLocal.x);
+        float minY = Mathf.Min(m_mouseDownLocalPos.y, currentLocal.y);
+        float maxY = Mathf.Max(m_mouseDownLocalPos.y, currentLocal.y);
+
+        var rect = m_selectionBoxVisual.GetComponent<RectTransform>();
+        rect.localPosition = new Vector3((minX + maxX) * 0.5f, (minY + maxY) * 0.5f, 0);
+        rect.sizeDelta = new Vector2(maxX - minX, maxY - minY);
+    }
+
+    /// <summary>
+    /// 完成框选：选中矩形范围内的所有 Note
+    /// </summary>
+    private void FinalizeBoxSelection(Vector2 currentLocal, bool additive)
+    {
+        float minX = Mathf.Min(m_mouseDownLocalPos.x, currentLocal.x);
+        float maxX = Mathf.Max(m_mouseDownLocalPos.x, currentLocal.x);
+        float minY = Mathf.Min(m_mouseDownLocalPos.y, currentLocal.y);
+        float maxY = Mathf.Max(m_mouseDownLocalPos.y, currentLocal.y);
+
+        // 非追加模式先清除已有选择
+        if (!additive)
+        {
+            ClearSelection();
+        }
+
+        bool anySelected = false;
+
+        for (int i = 0; i < m_notes.Count; i++)
+        {
+            var note = m_notes[i];
+            if (note.View == null || !note.View.activeSelf) continue;
+
+            float noteX = note.CachedLocalX;
+            float noteY = m_gridManager.TimeToLocalY(note.Time);
+
+            // Note 中心在矩形内
+            bool inBox = noteX >= minX && noteX <= maxX
+                         && noteY >= minY && noteY <= maxY;
+
+            // Hold 类型：终点在矩形内也算命中
+            if (!inBox && note.Type == NoteType.Hold)
+            {
+                float endY = m_gridManager.TimeToLocalY(note.EndTime);
+                inBox = noteX >= minX && noteX <= maxX
+                        && endY >= minY && endY <= maxY;
+            }
+
+            if (inBox)
+            {
+                note.IsSelected = true;
+                if (!anySelected)
+                {
+                    m_selectionAnchorIndex = i;
+                    anySelected = true;
+                }
+            }
+        }
+
+        UpdateSelectionVisuals();
+    }
+
+    // ---- 选择视觉更新 ----
+
+    /// <summary>
+    /// 更新所有 Note 的选中高亮颜色
+    /// </summary>
+    private void UpdateSelectionVisuals()
+    {
+        foreach (var note in m_notes)
+        {
+            if (note.View == null) continue;
+
+            var img = note.View.GetComponent<Image>();
+            if (img != null)
+            {
+                img.color = note.IsSelected ? m_selectedColor : note.OriginalColor;
+            }
+
+            // Hold 的中间和尾部也要更新颜色
+            if (note.Type == NoteType.Hold && note.ExtraViews != null)
+            {
+                foreach (var v in note.ExtraViews)
+                {
+                    if (v == null) continue;
+                    var extraImg = v.GetComponent<Image>();
+                    if (extraImg != null)
+                    {
+                        extraImg.color = note.IsSelected ? m_selectedColor : Color.white;
+                    }
+                }
+            }
+        }
+    }
+
+    // ---- 批量删除 ----
+
+    /// <summary>
+    /// 删除所有选中的 Note（批量删除，注册为单个撤回/重做操作）
+    /// </summary>
+    public void DeleteSelectedNotes()
+    {
+        // 捕获被删除 Note 的数据，供撤回恢复
+        var deletedNotes = new List<(NoteType type, int lane, float time, float endTime)>();
+
+        for (int i = m_notes.Count - 1; i >= 0; i--)
+        {
+            if (!m_notes[i].IsSelected) continue;
+
+            var note = m_notes[i];
+            deletedNotes.Add((note.Type, note.Lane, note.Time, note.EndTime));
+
+            if (note.Type == NoteType.Hold)
+            {
+                RemoveHoldAt(note.Lane, note.Time);
+            }
+            else
+            {
+                RemoveNoteAt(note.Lane, note.Time);
+            }
+        }
+
+        if (deletedNotes.Count == 0) return;
+
+        SaveNotesToJson();
+        ClearSelection();
+        m_playbackController?.ClearPlaybackNotes();
+
+        if (m_holdPending) CancelHoldPending();
+
+        // 捕获副本供 lambda 闭包使用
+        var captured = new List<(NoteType type, int lane, float time, float endTime)>(deletedNotes);
+
+        UndoRedoManager.Execute(
+            undo: () =>
+            {
+                foreach (var (type, lane, time, endTime) in captured)
+                {
+                    if (type == NoteType.Hold)
+                        CreateHoldView(lane, time, endTime);
+                    else
+                        CreateNoteView(type, lane, time);
+                }
+                SaveNotesToJson();
+                m_playbackController?.ClearPlaybackNotes();
+            },
+            redo: () =>
+            {
+                foreach (var (type, lane, time, endTime) in captured)
+                {
+                    if (type == NoteType.Hold)
+                        RemoveHoldAt(lane, time);
+                    else
+                        RemoveNoteAt(lane, time);
+                }
+                SaveNotesToJson();
+                m_playbackController?.ClearPlaybackNotes();
+            });
+
+        Debug.Log($"[NotePlacementManager] 批量删除 {captured.Count} 个 Note");
+    }
+
+    // ---- 集体移动 ----
+
+    /// <summary>
+    /// 记录所有选中 Note 的当前位置快照（移动开始前调用）
+    /// </summary>
+    private void RecordMoveSnapshots()
+    {
+        m_moveBefore.Clear();
+        for (int i = 0; i < m_notes.Count; i++)
+        {
+            if (!m_notes[i].IsSelected) continue;
+            m_moveBefore.Add(new MoveSnapshot
+            {
+                Index = i,
+                Lane = m_notes[i].Lane,
+                Time = m_notes[i].Time,
+                EndTime = m_notes[i].EndTime,
+                CachedLocalX = m_notes[i].CachedLocalX
+            });
+        }
+    }
+
+    /// <summary>
+    /// 拖拽中实时更新选中 Note 的位置。
+    /// 根据鼠标当前轨道和时间与按下时的差值，平移所有选中 Note。
+    /// 轨道和时间增量会被约束在合法范围内（不越界、不低于 0）。
+    /// </summary>
+    private void UpdateMove(Vector2 localPoint)
+    {
+        // 当前鼠标对应的轨道和时间（吸附节拍）
+        int currentLane = m_gridManager.LocalXToLane(localPoint.x);
+        float currentTime = SnapToBeat(m_gridManager.LocalYToTime(localPoint.y));
+
+        int laneDelta = currentLane - m_moveStartLane;
+        float timeDelta = currentTime - m_moveStartTime;
+
+        // 约束 laneDelta：确保所有 Note 的新轨道在 [0, LaneCount-1] 内
+        int minLane = int.MaxValue;
+        int maxLane = int.MinValue;
+        foreach (var snap in m_moveBefore)
+        {
+            minLane = Mathf.Min(minLane, snap.Lane);
+            maxLane = Mathf.Max(maxLane, snap.Lane);
+        }
+        int laneCount = m_gridManager.LaneCount;
+        laneDelta = Mathf.Clamp(laneDelta, -minLane, laneCount - 1 - maxLane);
+
+        // 约束 timeDelta：确保所有 Note 的新时间 >= 0
+        float minTime = float.MaxValue;
+        foreach (var snap in m_moveBefore)
+        {
+            minTime = Mathf.Min(minTime, snap.Time);
+        }
+        if (minTime + timeDelta < 0f)
+        {
+            timeDelta = -minTime;
+        }
+
+        // 应用增量到所有选中 Note
+        foreach (var snap in m_moveBefore)
+        {
+            if (snap.Index >= m_notes.Count) continue;
+            var note = m_notes[snap.Index];
+            note.Lane = snap.Lane + laneDelta;
+            note.Time = Mathf.Max(0f, snap.Time + timeDelta);
+
+            // Hold 类型同步移动结束时间
+            if (note.Type == NoteType.Hold)
+            {
+                note.EndTime = Mathf.Max(0f, snap.EndTime + timeDelta);
+            }
+
+            note.CachedLocalX = m_gridManager.LaneToLocalX(note.Lane);
+        }
+    }
+
+    /// <summary>
+    /// 鼠标抬起时提交移动：检测是否有实际位移，有则注册撤回/重做
+    /// </summary>
+    private void CommitMove()
+    {
+        // 记录移动后快照
+        m_moveAfter.Clear();
+        bool hasChange = false;
+
+        foreach (var snap in m_moveBefore)
+        {
+            if (snap.Index >= m_notes.Count) continue;
+            var note = m_notes[snap.Index];
+
+            m_moveAfter.Add(new MoveSnapshot
+            {
+                Index = snap.Index,
+                Lane = note.Lane,
+                Time = note.Time,
+                EndTime = note.EndTime,
+                CachedLocalX = note.CachedLocalX
+            });
+
+            // 检测是否有实际位移
+            if (snap.Lane != note.Lane || !Mathf.Approximately(snap.Time, note.Time))
+            {
+                hasChange = true;
+            }
+        }
+
+        if (!hasChange)
+        {
+            m_moveBefore.Clear();
+            m_moveAfter.Clear();
+            return;
+        }
+
+        SaveNotesToJson();
+        m_playbackController?.ClearPlaybackNotes();
+
+        // 捕获副本供 lambda 闭包使用
+        var before = new List<MoveSnapshot>(m_moveBefore);
+        var after = new List<MoveSnapshot>(m_moveAfter);
+
+        UndoRedoManager.Execute(
+            undo: () =>
+            {
+                foreach (var snap in before)
+                {
+                    if (snap.Index >= m_notes.Count) continue;
+                    ApplyMoveSnapshot(m_notes[snap.Index], snap);
+                }
+                SaveNotesToJson();
+                m_playbackController?.ClearPlaybackNotes();
+            },
+            redo: () =>
+            {
+                foreach (var snap in after)
+                {
+                    if (snap.Index >= m_notes.Count) continue;
+                    ApplyMoveSnapshot(m_notes[snap.Index], snap);
+                }
+                SaveNotesToJson();
+                m_playbackController?.ClearPlaybackNotes();
+            });
+
+        Debug.Log($"[NotePlacementManager] 集体移动 {before.Count} 个 Note");
+
+        m_moveBefore.Clear();
+        m_moveAfter.Clear();
+    }
+
+    /// <summary>
+    /// 将快照数据应用到 NoteEntry（供撤回/重做恢复位置）
+    /// </summary>
+    private void ApplyMoveSnapshot(NoteEntry note, MoveSnapshot snap)
+    {
+        note.Lane = snap.Lane;
+        note.Time = snap.Time;
+        note.EndTime = snap.EndTime;
+        note.CachedLocalX = snap.CachedLocalX;
+    }
+
+    #endregion
+
     // ---- 公开访问器（供 PlaybackModeController 使用）----
 
     /// <summary>Note 渲染层 RectTransform</summary>
@@ -950,6 +1706,15 @@ public class NotePlacementManager : MonoBehaviour
 
     /// <summary>根据 NoteType 获取对应 Sprite（公开接口）</summary>
     public Sprite GetNoteSprite(NoteType type) => GetSpriteForType(type);
+
+    /// <summary>Hold 头部 Sprite（供 3D 预览使用）</summary>
+    public Sprite HoldHeadSprite => m_holdHeadSprite;
+
+    /// <summary>Hold 中间 Sprite（供 3D 预览使用）</summary>
+    public Sprite HoldMidSprite => m_holdMidSprite;
+
+    /// <summary>Hold 尾部 Sprite（供 3D 预览使用）</summary>
+    public Sprite HoldTailSprite => m_holdTailSprite;
 
     #region JSON 持久化
 
@@ -1013,10 +1778,10 @@ public class NotePlacementManager : MonoBehaviour
                 {
                     if (cube.easingSlots != null)
                         foreach (var slot in cube.easingSlots)
-                            totalAnchors += slot?.anchorPoints?.Count ?? 0;
+                            totalAnchors += slot?.bars?.Count ?? 0;
                 }
             }
-            Debug.Log($"[{GetType().Name}] 保存 Note: notes={data.notes?.Count ?? 0}, cubes={cubeCount}, anchors={totalAnchors}");
+            Debug.Log($"[{GetType().Name}] 保存 Note: notes={data.notes?.Count ?? 0}, cubes={cubeCount}, bars={totalAnchors}");
         }
         catch (Exception ex)
         {

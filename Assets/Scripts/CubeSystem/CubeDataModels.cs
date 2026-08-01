@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using DG.Tweening;
 
 /// <summary>
 /// 单个 Note 数据（方体轨道内的 Note）
@@ -44,7 +45,7 @@ public class CubeNoteTrackData
     public List<EasingSlotData> easingSlots = new List<EasingSlotData>();
 
     /// <summary>
-    /// 初始化轨道级缓动槽（2个），每个在 time=0 处放置固定锚点。
+    /// 初始化轨道级缓动槽（2个），每个槽在 time=0 处放置不可删除的瞬时事件（初始值）。
     /// </summary>
     public void InitializeDefaultTrackEasingSlots()
     {
@@ -53,7 +54,8 @@ public class CubeNoteTrackData
         {
             var slotData = new EasingSlotData();
             var config = EasingSlotConfigs.Slots[EasingSlotConfigs.CubeSlotCount + i];
-            slotData.anchorPoints.Add(new AnchorPoint(0f, config.defaultValue));
+            slotData.bars.Add(new EasingBar(0f, 0f, config.defaultValue, config.defaultValue,
+                Ease.Linear, 1f, true));
             easingSlots.Add(slotData);
         }
     }
@@ -154,8 +156,7 @@ public class CubeData
     }
 
     /// <summary>
-    /// 初始化 13 个方体级缓动数据槽，每个槽在 time=0 处放置一个不可删除的固定锚点，
-    /// 锚点值为该槽的默认初始值。
+    /// 初始化 13 个方体级缓动数据槽，每个槽在 time=0 处放置不可删除的瞬时事件（初始值）。
     /// </summary>
     public void InitializeDefaultEasingSlots()
     {
@@ -164,7 +165,8 @@ public class CubeData
         {
             var slotData = new EasingSlotData();
             var config = EasingSlotConfigs.Slots[i];
-            slotData.anchorPoints.Add(new AnchorPoint(0f, config.defaultValue));
+            slotData.bars.Add(new EasingBar(0f, 0f, config.defaultValue, config.defaultValue,
+                Ease.Linear, 1f, true));
             easingSlots.Add(slotData);
         }
     }

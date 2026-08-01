@@ -85,9 +85,9 @@ namespace RuntimePlayback
                     if (cube.easingSlots != null)
                     {
                         foreach (var slot in cube.easingSlots)
-                            totalAnchors += slot?.anchorPoints?.Count ?? 0;
+                            totalAnchors += slot?.bars?.Count ?? 0;
                     }
-                    sb.Append($"\n  Cube#{cube.cubeId}: slots={cube.easingSlots?.Count ?? 0}, anchors={totalAnchors}");
+                    sb.Append($"\n  Cube#{cube.cubeId}: slots={cube.easingSlots?.Count ?? 0}, bars={totalAnchors}");
                 }
                 Debug.Log($"[ChartPlaybackController] {sb}");
 

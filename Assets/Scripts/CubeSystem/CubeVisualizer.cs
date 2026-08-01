@@ -33,6 +33,7 @@ public class CubeVisualizer : MonoBehaviour
     private GameObject m_facesContainer;
     private Material m_edgeMaterial;
     private Material m_faceMaterial;
+    private Shader m_cubeShader;
     private readonly List<GameObject> m_edgeObjects = new List<GameObject>();
     private readonly List<GameObject> m_faceObjects = new List<GameObject>();
 
@@ -47,11 +48,13 @@ public class CubeVisualizer : MonoBehaviour
     /// </summary>
     /// <param name="cubeId">所属方体 ID</param>
     /// <param name="layer">渲染层（CubeCamera 仅渲染此层）</param>
-    public void Initialize(int cubeId, int layer = 0)
+    /// <param name="shader">方体渲染 Shader（如为 null 将尝试 Shader.Find 加载）</param>
+    public void Initialize(int cubeId, int layer = 0, Shader shader = null)
     {
         CubeId = cubeId;
         m_cubeLayer = layer;
         gameObject.layer = layer;
+        m_cubeShader = shader;
         CreateMaterials();
         CreateEdges();
         CreateFaces();
@@ -62,7 +65,13 @@ public class CubeVisualizer : MonoBehaviour
     /// </summary>
     private void CreateMaterials()
     {
-        Shader unlitShader = Shader.Find("Unlit/CubeUnlit");
+        // 优先使用外部传入的 Shader 引用，其次尝试 Shader.Find
+        Shader unlitShader = m_cubeShader;
+        if (unlitShader == null)
+        {
+            unlitShader = Shader.Find("Unlit/CubeUnlit");
+        }
+
         if (unlitShader == null)
         {
             Debug.LogError($"[{GetType().Name}] 未找到 Unlit/CubeUnlit shader，回退到 Unlit/Texture");

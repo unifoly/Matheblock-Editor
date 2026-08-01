@@ -56,6 +56,10 @@ public class GridManager : MonoBehaviour
     private bool m_isUpdatingFromSlider;
     private bool m_scrollInitialized;
 
+    // Display 模式：由 PlaybackModeController 每帧接管滚动跟随播放，
+    // 此期间滑块回调不再触发全量重绘，避免每帧重建网格线的开销
+    private bool m_followPlayback;
+
     private void Start()
     {
         m_xLineValue = 4;
@@ -232,6 +236,8 @@ public class GridManager : MonoBehaviour
     private void OnSliderValueChanged(float normalizedValue)
     {
         if (m_isUpdatingFromSlider) return;
+        // Display 模式由 SetScrollOffsetToTime 驱动，跳过滑块回调全量重绘
+        if (m_followPlayback) return;
 
         UpdateTotalMusicTime();
         m_scrollOffset = normalizedValue * TotalScrollRange;
@@ -383,7 +389,7 @@ public class GridManager : MonoBehaviour
     /// 每条线通过 BpmManagerUI.GetBpmAtTime() 获取对应时间点的 BPM 来确定间距。
     /// m_scrollOffset / m_pixelsPerSecond = 3/4 基准线处对应的时间点，视口窗口始终固定。
     /// </summary>
-    private void DrawHorizontalLines()
+    private void DrawHorizontalLines(bool skipDebugLog = false)
     {
         if (m_playScreenRect == null || m_viewportHeight <= 0 || EffectivePixelsPerSecond <= 0) return;
         if (m_totalMusicTime <= 0) return;
@@ -424,7 +430,7 @@ public class GridManager : MonoBehaviour
         int poolIndex = 0;
 
         // 调试：记录可见线中第一条和最后一条 BPM，以及BPM发生变化的位置
-        System.Text.StringBuilder posLog = new System.Text.StringBuilder();
+        System.Text.StringBuilder posLog = skipDebugLog ? null : new System.Text.StringBuilder();
         int posLogCount = 0;
         float firstBpm = 0f;
         float lastBpm = 0f;
@@ -464,7 +470,7 @@ public class GridManager : MonoBehaviour
                 prevDrawnBpm = bpm;
 
                 // 记录前8条线的位置
-                if (posLogCount < 8)
+                if (posLog != null && posLogCount < 8)
                 {
                     posLog.Append($" [t={time:F3}bpm={bpm:F0}y={yPos:F0}]");
                     posLogCount++;
@@ -585,6 +591,41 @@ public class GridManager : MonoBehaviour
 
         // Debug.Log($"[GridManager] HandleZoom delta={scrollDelta:F3} factor={factor:F3} " +
         //          $"zoomScale={m_zoomScale:F3} centerTime={centerTime:F3}s scrollOffset={m_scrollOffset:F1}");
+    }
+
+    /// <summary>
+    /// Display 模式：外部（PlaybackModeController）接管网格滚动跟随播放。
+    /// 开启后滑块回调不再触发全量重绘，由 SetScrollOffsetToTime 每帧轻量驱动。
+    /// </summary>
+    public void SetFollowPlayback(bool follow)
+    {
+        m_followPlayback = follow;
+    }
+
+    /// <summary>
+    /// Display 模式：将网格滚动偏移设为指定播放时间（秒）。
+    /// 仅重绘水平线（对象池复用），不重建垂直线，保证每帧跟随播放足够轻量。
+    /// </summary>
+    public void SetScrollOffsetToTime(float time)
+    {
+        if (!m_followPlayback) return;
+
+        UpdateTotalMusicTime();
+
+        m_scrollOffset = time * EffectivePixelsPerSecond;
+        if (TotalScrollRange > 0)
+        {
+            m_scrollOffset = Mathf.Clamp(m_scrollOffset, 0f, TotalScrollRange);
+        }
+
+        // 跳过调试日志构建，避免每帧分配
+        DrawHorizontalLines(true);
+
+        if (TotalScrollRange > 0)
+        {
+            UpdateSlider();
+            UpdateTimeText();
+        }
     }
 
     public float CurrentOffset => m_scrollOffset;

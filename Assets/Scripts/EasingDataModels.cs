@@ -64,90 +64,113 @@ public static class EaseDisplayNames
 }
 
 /// <summary>
-/// 锚点（关键帧）：在特定时间点记录一个数值，并定义到下一个锚点的缓动方式。
-/// 缓动类型使用 DOTween 的 Ease 枚举，求值通过 DOVirtual.EasedValue 实现。
+/// 缓动长条：表示一段时间内的数值变化区间。
+/// 起始时间到结束时间之间通过缓动函数从起始值过渡到结束值，
+/// 长条之外的时间段数值保持不变（延续前一个长条的结束值或默认值）。
 /// </summary>
 [Serializable]
-public class AnchorPoint
+public class EasingBar
 {
-    /// <summary>时间位置（秒）</summary>
-    public float time;
+    /// <summary>起始时间（秒）</summary>
+    public float startTime;
 
-    /// <summary>数值</summary>
-    public float value;
+    /// <summary>结束时间（秒）</summary>
+    public float endTime;
 
-    /// <summary>从此锚点到下一个锚点的缓动类型（DOTween Ease）</summary>
+    /// <summary>起始数值（创建时默认为当前数值）</summary>
+    public float startValue;
+
+    /// <summary>结束数值（创建时默认为当前数值）</summary>
+    public float endValue;
+
+    /// <summary>长条内的缓动类型（DOTween Ease）</summary>
     public Ease easingType = Ease.Linear;
 
     /// <summary>缓动权重 (0=线性, 1=完整缓动, 可超过1增强效果)</summary>
     public float weight = 1f;
 
-    public AnchorPoint() { }
+    /// <summary>是否为瞬时赋值事件（同一格点两次确认，始末值相同）</summary>
+    public bool isInstant = false;
 
-    public AnchorPoint(float time, float value, Ease easingType = Ease.Linear, float weight = 1f)
+    public EasingBar() { }
+
+    public EasingBar(float startTime, float endTime, float startValue, float endValue,
+        Ease easingType = Ease.Linear, float weight = 1f, bool isInstant = false)
     {
-        this.time = time;
-        this.value = value;
+        this.startTime = startTime;
+        this.endTime = endTime;
+        this.startValue = startValue;
+        this.endValue = endValue;
         this.easingType = easingType;
         this.weight = weight;
+        this.isInstant = isInstant;
     }
 
-    public AnchorPoint Clone()
+    public EasingBar Clone()
     {
-        return new AnchorPoint(time, value, easingType, weight);
+        return new EasingBar(startTime, endTime, startValue, endValue, easingType, weight, isInstant);
     }
 }
 
 /// <summary>
-/// 单个数据槽的缓动数据：包含锚点列表及槽位配置（默认值/最小值/最大值）。
+/// 单个数据槽的缓动数据：包含长条列表及槽位配置（默认值/最小值/最大值）。
+/// 长条表示一段时间内的数值变化，长条之外的时间段数值保持不变。
 /// </summary>
 [Serializable]
 public class EasingSlotData
 {
-    /// <summary>锚点列表（按时间升序排列）</summary>
-    public List<AnchorPoint> anchorPoints = new List<AnchorPoint>();
+    /// <summary>长条列表（按起始时间升序排列）</summary>
+    public List<EasingBar> bars = new List<EasingBar>();
 
     /// <summary>
-    /// 在指定时间点根据锚点和缓动函数插值求值。
-    /// 无锚点时返回默认值；时间在首尾锚点之外时返回边界值。
+    /// 在指定时间点根据长条和缓动函数插值求值。
+    /// 无长条时返回默认值；长条之间返回前一个长条的结束值（数值不变）；
+    /// 最后一个长条之后返回其结束值。
     /// 使用 DOTween 的 DOVirtual.EasedValue 进行缓动插值。
     /// </summary>
     public float EvaluateAt(float time, float defaultValue, EasingSlotConfig config)
     {
-        if (anchorPoints == null || anchorPoints.Count == 0)
+        if (bars == null || bars.Count == 0)
         {
             return defaultValue;
         }
 
-        // 时间在第一个锚点之前：返回第一个锚点的值
-        if (time <= anchorPoints[0].time)
+        // 时间在第一个长条之前：返回默认值（数值不变）
+        if (time < bars[0].startTime)
         {
-            return anchorPoints[0].value;
+            return defaultValue;
         }
 
-        // 时间在最后一个锚点之后：返回最后一个锚点的值
-        int last = anchorPoints.Count - 1;
-        if (time >= anchorPoints[last].time)
+        int last = bars.Count - 1;
+
+        // 时间在最后一个长条之后：返回最后一个长条的结束值
+        if (time > bars[last].endTime)
         {
-            return anchorPoints[last].value;
+            return bars[last].endValue;
         }
 
-        // 查找所在的区间
-        for (int i = 0; i < last; i++)
+        // 遍历长条，查找所在区间
+        for (int i = 0; i <= last; i++)
         {
-            AnchorPoint curr = anchorPoints[i];
-            AnchorPoint next = anchorPoints[i + 1];
+            EasingBar bar = bars[i];
 
-            if (time >= curr.time && time <= next.time)
+            // 在长条范围内：使用缓动函数插值
+            if (time >= bar.startTime && time <= bar.endTime)
             {
-                float duration = next.time - curr.time;
-                if (duration <= 0f) return curr.value;
+                float duration = bar.endTime - bar.startTime;
+                if (duration <= 0f) return bar.startValue;
 
-                float t = (time - curr.time) / duration;
+                float t = (time - bar.startTime) / duration;
                 // 权重混合：weight=0 时线性，weight=1 时完整缓动
-                float easedT = DOVirtual.EasedValue(0f, 1f, t, curr.easingType);
-                float weightedT = Mathf.Lerp(t, easedT, curr.weight);
-                return Mathf.Lerp(curr.value, next.value, weightedT);
+                float easedT = DOVirtual.EasedValue(0f, 1f, t, bar.easingType);
+                float weightedT = Mathf.Lerp(t, easedT, bar.weight);
+                return Mathf.Lerp(bar.startValue, bar.endValue, weightedT);
+            }
+
+            // 在当前长条与下一个长条之间的间隙：数值不变（延续当前长条的结束值）
+            if (i < last && time > bar.endTime && time < bars[i + 1].startTime)
+            {
+                return bar.endValue;
             }
         }
 

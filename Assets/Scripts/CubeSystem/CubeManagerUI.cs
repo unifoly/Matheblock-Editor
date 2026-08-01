@@ -128,6 +128,13 @@ public class CubeManagerUI : MonoBehaviour
             {
                 m_cubeIdInput.onEndEdit.RemoveListener(HandleCubeIdInputEndEdit);
                 m_cubeIdInput.onEndEdit.AddListener(HandleCubeIdInputEndEdit);
+
+                // 默认值为 1（首个方体 ID 通常为 1）
+                if (string.IsNullOrWhiteSpace(m_cubeIdInput.text))
+                {
+                    m_cubeIdInput.text = "1";
+                }
+
                 Debug.Log($"[{GetType().Name}] CubeID 输入框绑定成功");
             }
         }

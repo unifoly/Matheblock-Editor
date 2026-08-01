@@ -156,6 +156,13 @@ namespace HexMap
                     BindToggle(toggle, name);
                 }
 
+                // 输入框
+                var inputField = child.GetComponent<TMP_InputField>();
+                if (inputField != null && name.StartsWith("Row_"))
+                {
+                    BindInputField(inputField, name);
+                }
+
                 // 下拉框
                 var dropdown = child.GetComponent<TMP_Dropdown>();
                 if (dropdown != null && name.StartsWith("Row_"))
@@ -200,6 +207,30 @@ namespace HexMap
                     });
                     break;
             }
+        }
+
+        private void BindInputField(TMP_InputField inputField, string rowName)
+        {
+            if (rowName != "Row_AutoSave")
+            {
+                return;
+            }
+
+            // 显示当前设置的自动保存分钟数（默认 10）
+            inputField.contentType = TMP_InputField.ContentType.IntegerNumber;
+            inputField.text = SettingsDataManager.AutoSaveMinutes.ToString();
+
+            inputField.onEndEdit.AddListener(value =>
+            {
+                // 解析失败或超出范围时回退为当前设置值
+                if (int.TryParse(value, out int minutes))
+                {
+                    SettingsDataManager.AutoSaveMinutes = Mathf.Clamp(minutes, 1, 60);
+                }
+
+                inputField.text = SettingsDataManager.AutoSaveMinutes.ToString();
+                SettingsDataManager.Save();
+            });
         }
 
         private void BindToggle(Toggle toggle, string rowName)

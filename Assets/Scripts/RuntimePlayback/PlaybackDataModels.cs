@@ -7,18 +7,21 @@ namespace RuntimePlayback
     // ---- JSON 数据模型（字段名与编辑器格式完全一致，确保 JsonUtility 兼容）----
 
     [Serializable]
-    public class PlaybackAnchorPoint
+    public class PlaybackEasingBar
     {
-        public float time;
-        public float value;
+        public float startTime;
+        public float endTime;
+        public float startValue;
+        public float endValue;
         public Ease easingType = Ease.Linear;
         public float weight = 1f;
+        public bool isInstant = false;
     }
 
     [Serializable]
     public class PlaybackEasingSlot
     {
-        public List<PlaybackAnchorPoint> anchorPoints = new List<PlaybackAnchorPoint>();
+        public List<PlaybackEasingBar> bars = new List<PlaybackEasingBar>();
     }
 
     [Serializable]

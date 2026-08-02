@@ -292,6 +292,9 @@ Setting 场景关闭后，`EditorInit` 自动调用 `UndoRedoManager.ReloadShort
 | Row_Note_Drag | `Note_Drag` | `E` | Drag |
 | Row_Note_ReverseFlick | `Note_ReverseFlick` | `T` | ReverseFlick |
 | Row_Note_FakeToggle | `Note_FakeToggle` | `Tab` | Fake Note 切换键 |
+| Row_Global_Toggle | `Global_Toggle` | `O` | 切换全局事件区模式 |
+| Row_Bar_Create | `Bar_Create` | `S` | 创建缓动区长条 |
+| Row_Bar_Delete | `Bar_Delete` | `Delete` | 删除选中长条 |
 | Row_Undo | `Editor_Undo` | `Ctrl + Z` | 撤回 |
 | Row_Redo | `Editor_Redo` | `Ctrl + Y` | 重做 |
 | Row_ScrollUp | `Editor_ScrollUp` | `滚轮上` | 向上滚动 |
@@ -495,6 +498,9 @@ CubeManagerUI 在 `Start()` 时自动绑定 UpperList 中的现有控件：
 | T | 放置 ReverseFlick Note | ✅ (`Note_ReverseFlick`) |
 | W | 放置 Hold Note | ✅ (`Note_Hold`) |
 | Tab（切换/按住）+ Q/R/E/T/W | 放置对应类型的 Fake Note | ✅ (`Note_FakeToggle`) |
+| O | 切换全局事件区模式 | ✅ (`Global_Toggle`) |
+| S | 创建缓动区长条（两次确认） | ✅ (`Bar_Create`) |
+| Delete | 删除选中长条（缓动区） | ✅ (`Bar_Delete`) |
 | 滚轮上 | 向上滚动 | ✅ (`Editor_ScrollUp`) |
 | 滚轮下 | 向下滚动 | ✅ (`Editor_ScrollDown`) |
 | Ctrl + 滚轮上 | 放大 | ✅ (`Editor_ZoomIn`) |

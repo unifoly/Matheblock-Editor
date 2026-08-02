@@ -48,6 +48,8 @@ public class BpmManagerUI : MonoBehaviour
         public string Charter;
         public string Illustrationer;
         public string Musician;
+        // 音乐偏移（毫秒），保留 InfoManagerUI 写入的字段，避免 BPM 保存时丢失
+        public float offset;
     }
 
     [Serializable]

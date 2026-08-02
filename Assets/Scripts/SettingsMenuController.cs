@@ -29,6 +29,26 @@ namespace HexMap
 
         private Button m_currentActiveButton;
 
+        /// <summary>
+        /// 左侧菜单条目所在容器（滚动列表 Content 或菜单按钮的父节点），
+        /// 供 SettingsSceneController 将自动创建的按钮放入菜单列表底部
+        /// </summary>
+        public Transform MenuContent
+        {
+            get
+            {
+                for (int i = 0; i < m_menuEntries.Count; i++)
+                {
+                    if (m_menuEntries[i].menuButton != null)
+                    {
+                        return m_menuEntries[i].menuButton.transform.parent;
+                    }
+                }
+
+                return null;
+            }
+        }
+
         private void Start()
         {
             HideAllPages();

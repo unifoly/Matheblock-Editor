@@ -104,15 +104,36 @@ public class ButtonFuctionManager : MonoBehaviour
     public void Play()
     {
         // 不在此处重置放映模式：由具体按钮（Display/Replay）决定是否保留网格
-        m_music.time = (float)(m_slider.value * MusicTimeStampController.MusicTime);
-        m_music.Play();
+        float seekTime = (float)(m_slider.value * MusicTimeStampController.MusicTime);
+
+        if (m_playbackModeController != null)
+        {
+            // 经由放映控制器启动：刷新最新 offset 并按 offset 调整音频起始位置
+            m_playbackModeController.PlayMusic(seekTime);
+        }
+        else
+        {
+            // 兜底：无放映控制器时直接播放
+            m_music.Stop();
+            m_music.time = seekTime;
+            m_music.Play();
+        }
+
         m_pauseButton.SetActive(true);
         m_playButton.SetActive(false);
     }
 
     public void Pause()
     {
-        m_music.Pause();
+        if (m_playbackModeController != null)
+        {
+            m_playbackModeController.PauseMusic();
+        }
+        else
+        {
+            m_music.Pause();
+        }
+
         m_pauseButton.SetActive(false);
         m_playButton.SetActive(true);
     }

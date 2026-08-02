@@ -19,6 +19,9 @@ public class CubeNoteData
 
     /// <summary>Hold 类型专用：结束时间（非 Hold 类型为 0）</summary>
     public float endTime;
+
+    /// <summary>Fake Note：与正常 Note 的唯一区别是击打后无特效</summary>
+    public bool isFake;
 }
 
 /// <summary>

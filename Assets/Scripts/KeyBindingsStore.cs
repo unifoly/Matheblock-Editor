@@ -180,6 +180,7 @@ namespace HexMap
         /// <summary>
         /// 检测此组合键是否正在被持续按住（用于滚动等连续输入）。
         /// 修饰键要求精确匹配，主键要求 GetKey（持续）。
+        /// 纯修饰键组合（如仅 "Alt"）在修饰键精确匹配时视为按住。
         /// </summary>
         public bool IsHeld()
         {
@@ -189,9 +190,10 @@ namespace HexMap
                 return IsPressed();
             }
 
+            // 纯修饰键组合（无主键）：修饰键精确匹配即视为按住
             if (m_mainKey == KeyCode.None)
             {
-                return false;
+                return CheckModifiers() && (m_ctrl || m_shift || m_alt);
             }
 
             // 主键是修饰键本身：检测 GetKey（左右皆可）
@@ -234,7 +236,8 @@ namespace HexMap
             return false;
         }
 
-        public bool IsValid => m_mainKey != KeyCode.None || m_wheelDir != 0;
+        // 纯修饰键组合（如仅 "Alt"）也视为有效绑定
+        public bool IsValid => m_mainKey != KeyCode.None || m_wheelDir != 0 || m_ctrl || m_shift || m_alt;
 
         /// <summary>
         /// 判断按键是否为修饰键

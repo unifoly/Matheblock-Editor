@@ -30,6 +30,9 @@ public class PlaybackModeController : MonoBehaviour
     private static readonly Color k_dimColor = new Color(k_dimFactor, k_dimFactor, k_dimFactor, 1f);
     private static readonly Color k_fullColor = Color.white;
 
+    // Fake Note 半透明颜色（3D 预览与编辑器一致，且命中后无打击特效）
+    private static readonly Color k_fakeColor = new Color(1f, 1f, 1f, 0.5f);
+
     // ---- 引用 ----
     private AudioSource m_audioSource;
     private GridManager m_gridManager;
@@ -86,6 +89,8 @@ public class PlaybackModeController : MonoBehaviour
         public float MidPivotFactor;
         // 是否已触发命中特效（普通 Note 一次性，Hold 持续）
         public bool HitEffectStarted;
+        // 是否 Fake Note（命中后无打击特效）
+        public bool IsFake;
     }
 
     private void Start()
@@ -137,7 +142,8 @@ public class PlaybackModeController : MonoBehaviour
         CheckChartFileChanged();
 
         bool wasPlaying = m_isPlaying;
-        m_isPlaying = m_audioSource != null && m_audioSource.isPlaying;
+        // 播放状态由谱面播放器驱动（含 offset>0 的音乐前奏等待期，此时音频尚未开始但谱面已启动）
+        m_isPlaying = m_chartPlayback != null && m_chartPlayback.IsPlaying;
 
         if (m_isPlaying && !wasPlaying)
         {
@@ -148,15 +154,15 @@ public class PlaybackModeController : MonoBehaviour
             ExitPlaybackMode();
         }
 
-        // 当前时间：播放时用音频时间，编辑时用网格时间
-        float currentTime = m_isPlaying && m_audioSource != null
-            ? m_audioSource.time
+        // 当前时间：播放时用谱面时钟（音乐偏移已在播放时钟中处理），编辑时用网格时间
+        float currentTime = m_isPlaying && m_chartPlayback != null
+            ? m_chartPlayback.CurrentTime
             : (m_gridManager != null ? m_gridManager.CurrentTime : 0f);
 
         // Display 模式：网格保持可见并跟随播放自动滚动
-        if (m_isPlaying && m_keepGridDuringPlayback && m_gridManager != null && m_audioSource != null)
+        if (m_isPlaying && m_keepGridDuringPlayback && m_gridManager != null)
         {
-            m_gridManager.SetScrollOffsetToTime(m_audioSource.time);
+            m_gridManager.SetScrollOffsetToTime(currentTime);
         }
 
         // 始终缓存淡出目标（含背景变暗初始化）
@@ -217,6 +223,30 @@ public class PlaybackModeController : MonoBehaviour
         Debug.Log($"[{GetType().Name}] RefreshChartPlayback: loaded={loaded}, " +
                   $"animators={m_chartPlayback.CubeAnimatorCount}, " +
                   $"chartData={m_chartPlayback.ChartData != null}");
+    }
+
+    /// <summary>
+    /// 从最新 chart.tmp 读取音乐偏移（秒），供播放按钮延迟音乐启动使用。
+    /// 每次点击播放时重新读取，避免用户刚修改 offset 就立即播放时读到旧值。
+    /// </summary>
+    public float GetPlaybackOffsetSeconds()
+    {
+        if (string.IsNullOrEmpty(EditorInit.ChartPath)) return 0f;
+
+        string chartPath = System.IO.Path.Combine(EditorInit.ChartPath, "chart.tmp");
+        if (!System.IO.File.Exists(chartPath)) return 0f;
+
+        try
+        {
+            string json = System.IO.File.ReadAllText(chartPath);
+            var data = JsonUtility.FromJson<PlaybackChartData>(json);
+            return data?.info?.offset != null ? data.info.offset / 1000f : 0f;
+        }
+        catch (System.Exception ex)
+        {
+            Debug.LogWarning($"[{GetType().Name}] 读取 offset 失败: {ex.Message}");
+            return 0f;
+        }
     }
 
     /// <summary>
@@ -291,6 +321,25 @@ public class PlaybackModeController : MonoBehaviour
     // ---- 放映模式进出 ----
 
     /// <summary>
+    /// 开始播放（编辑器播放按钮入口）：播放前刷新最新 offset，再启动谱面时钟与音乐。
+    /// 谱面时钟保证：offset&gt;0 时谱面从 t=0 立即滚动、音乐延后；offset&lt;0 时音乐立即播放、谱面延后。
+    /// </summary>
+    public void PlayMusic(float seekTime)
+    {
+        if (m_chartPlayback == null) return;
+
+        // 每次播放前重新读取 offset，避免用户刚修改就播放时读到旧值
+        m_chartPlayback.SetPlaybackOffsetSeconds(GetPlaybackOffsetSeconds());
+        m_chartPlayback.Play(seekTime);
+    }
+
+    /// <summary>暂停播放</summary>
+    public void PauseMusic()
+    {
+        m_chartPlayback?.Pause();
+    }
+
+    /// <summary>
     /// 设置放映时是否保留网格等编辑层（true = Display 模式：放映时网格可见并自动滚动）。
     /// 正在放映中切换模式时，即时调整网格显隐与跟随状态。
     /// </summary>
@@ -362,9 +411,10 @@ public class PlaybackModeController : MonoBehaviour
         RefreshChartPlayback();
 
         m_spawnedKeys.Clear();
-        m_prevTime = m_audioSource.time;
+        m_prevTime = m_chartPlayback != null ? m_chartPlayback.CurrentTime : 0f;
 
-        Debug.Log($"[{GetType().Name}] 进入放映模式");
+        float offsetSeconds = m_chartPlayback != null ? m_chartPlayback.PlaybackOffsetSeconds : 0f;
+        Debug.Log($"[{GetType().Name}] 进入放映模式，音乐偏移 offset={offsetSeconds * 1000f:F1}ms");
     }
 
     private void ExitPlaybackMode()
@@ -540,7 +590,8 @@ public class PlaybackModeController : MonoBehaviour
                         pb.Renderer.gameObject.SetActive(false);
 
                     // 打击特效：Hold 持续期间在棱位置持续散射，直到 EndTime 销毁
-                    if (cubeTransform != null)
+                    // Fake Hold：不产生打击特效
+                    if (!pb.IsFake && cubeTransform != null)
                         m_hitEffect?.EmitHold(cubeTransform, pb.EndPos, fallingDir, laneAxis, cubeLayer);
 
                     // 中间条前端固定在棱位置（EndPos），尾部逐渐靠近
@@ -581,10 +632,11 @@ public class PlaybackModeController : MonoBehaviour
                     pb.View.transform.localPosition = pb.EndPos;
 
                     // 打击特效：命中瞬间在命中点散射橙色小方块（0.2s 消散）
+                    // Fake Note：命中后不产生打击特效
                     if (!pb.HitEffectStarted)
                     {
                         pb.HitEffectStarted = true;
-                        if (cubeTransform != null)
+                        if (!pb.IsFake && cubeTransform != null)
                             m_hitEffect?.SpawnBurst(cubeTransform, pb.EndPos, fallingDir, laneAxis, cubeLayer);
                         m_playbackNotes[i] = pb;
                     }
@@ -661,6 +713,7 @@ public class PlaybackModeController : MonoBehaviour
         NotePlacementManager.NoteType noteType = default;
         bool parsed = System.Enum.TryParse<NotePlacementManager.NoteType>(note.type, out noteType);
         bool isHold = parsed && noteType == NotePlacementManager.NoteType.Hold && note.endTime > 0f;
+        bool isFake = note.isFake;
 
         if (isHold)
         {
@@ -684,7 +737,7 @@ public class PlaybackModeController : MonoBehaviour
 
         Sprite sprite = parsed ? m_notePlacementManager?.GetNoteSprite(noteType) : null;
         sr.sprite = sprite;
-        sr.color = Color.white;
+        sr.color = isFake ? k_fakeColor : Color.white;
 
         if (sprite != null && sprite.pixelsPerUnit > 0)
         {
@@ -701,7 +754,8 @@ public class PlaybackModeController : MonoBehaviour
             Lane = note.lane,
             StartPos = startPos,
             EndPos = endPos,
-            EffectiveLookAhead = effectiveLookAhead
+            EffectiveLookAhead = effectiveLookAhead,
+            IsFake = isFake
         });
     }
 
@@ -713,6 +767,10 @@ public class PlaybackModeController : MonoBehaviour
         Vector3 fallingDir, Vector3 startPos, Vector3 endPos,
         float fixedNoteSize, bool isVerticalFall, float effectiveLookAhead)
     {
+        // Fake Hold：整体半透明（与编辑器一致）
+        bool isFake = note.isFake;
+        Color partColor = isFake ? k_fakeColor : Color.white;
+
         // 下落速度（单位/秒），受流速影响
         float fallDistance = (endPos - startPos).magnitude;
         float fallSpeed = fallDistance / effectiveLookAhead;
@@ -734,6 +792,8 @@ public class PlaybackModeController : MonoBehaviour
         Sprite headSprite = m_notePlacementManager?.HoldTailSprite;
         var headGo = CreateHoldPart(parent.transform, headSprite, fixedNoteSize, faceCamera, 10);
         headGo.transform.localPosition = Vector3.zero;
+        var headSr = headGo.GetComponent<SpriteRenderer>();
+        if (headSr != null) headSr.color = partColor;
 
         // ---- 中间条（使用 holdMidSprite，沿下落方向拉伸）----
         Sprite midSprite = m_notePlacementManager?.HoldMidSprite;
@@ -750,7 +810,7 @@ public class PlaybackModeController : MonoBehaviour
 
             var midSr = midGo.AddComponent<SpriteRenderer>();
             midSr.sprite = midSprite;
-            midSr.color = Color.white;
+            midSr.color = partColor;
             midSr.sortingOrder = 9;
             midSr.flipY = true; // Y 翻转（与 2D 编辑器一致）
 
@@ -782,11 +842,13 @@ public class PlaybackModeController : MonoBehaviour
         Sprite tailSprite = m_notePlacementManager?.HoldHeadSprite;
         var tailGo = CreateHoldPart(parent.transform, tailSprite, fixedNoteSize, faceCamera, 10);
         tailGo.transform.localPosition = -fallingDir * fullBodyLength;
+        var tailSr = tailGo.GetComponent<SpriteRenderer>();
+        if (tailSr != null) tailSr.color = partColor;
 
         m_playbackNotes.Add(new PlaybackNote
         {
             View = parent,
-            Renderer = headGo.GetComponent<SpriteRenderer>(),
+            Renderer = headSr,
             HitTime = note.time,
             Lane = note.lane,
             StartPos = startPos,
@@ -800,7 +862,8 @@ public class PlaybackModeController : MonoBehaviour
             TailTransform = tailGo.transform,
             MidPerpScale = midPerpScale,
             MidBodyFactor = midBodyFactor,
-            MidPivotFactor = midPivotFactor
+            MidPivotFactor = midPivotFactor,
+            IsFake = isFake
         });
     }
 

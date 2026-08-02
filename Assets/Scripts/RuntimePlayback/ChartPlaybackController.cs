@@ -27,6 +27,10 @@ namespace RuntimePlayback
         private readonly Dictionary<int, CubeAnimator> m_cubeAnimators = new Dictionary<int, CubeAnimator>();
         private bool m_isPlaying;
 
+        // 音乐偏移（秒）：正值表示音乐快了该时长，负值表示音乐慢了该时长
+        // 播放时通过调整音频起始位置实现：谱面时间 = 音频时间 + offset
+        private float m_offsetSeconds;
+
         /// <summary>是否正在播放</summary>
         public bool IsPlaying => m_isPlaying;
 
@@ -36,8 +40,11 @@ namespace RuntimePlayback
         /// <summary>已注册的方体动画组件数量</summary>
         public int CubeAnimatorCount => m_cubeAnimators.Count;
 
-        /// <summary>当前播放时间（秒）</summary>
-        public float CurrentTime => m_audioSource != null ? m_audioSource.time : 0f;
+        /// <summary>当前谱面时间（秒）= 音频时间 + offset</summary>
+        public float CurrentTime => m_audioSource != null ? m_audioSource.time + m_offsetSeconds : 0f;
+
+        /// <summary>音乐偏移量（秒），正值表示音乐快了该时长，播放时将其延后</summary>
+        public float PlaybackOffsetSeconds => m_offsetSeconds;
 
         /// <summary>设置音频源（驱动播放时间轴）</summary>
         public void SetAudioSource(AudioSource source)
@@ -76,6 +83,7 @@ namespace RuntimePlayback
             try
             {
                 m_chartData = JsonUtility.FromJson<PlaybackChartData>(json);
+                RefreshPlaybackOffset();
                 if (m_chartData?.cubes == null || m_chartData.cubes.Count == 0)
                 {
                     Debug.LogWarning("[ChartPlaybackController] 谱面中无方体数据");
@@ -117,6 +125,7 @@ namespace RuntimePlayback
             {
                 string json = System.IO.File.ReadAllText(jsonPath);
                 m_chartData = JsonUtility.FromJson<PlaybackChartData>(json);
+                RefreshPlaybackOffset();
                 if (m_chartData?.cubes == null) return;
 
                 // 更新已注册 CubeAnimator 的数据引用（先恢复原始 Transform 再重新初始化）
@@ -133,6 +142,22 @@ namespace RuntimePlayback
             {
                 Debug.LogError($"[ChartPlaybackController] 重新加载谱面失败: {ex.Message}");
             }
+        }
+
+        /// <summary>
+        /// 从已反序列化的谱面数据中刷新音乐偏移（毫秒转秒）
+        /// </summary>
+        private void RefreshPlaybackOffset()
+        {
+            m_offsetSeconds = m_chartData?.info?.offset != null
+                ? m_chartData.info.offset / 1000f
+                : 0f;
+        }
+
+        /// <summary>设置音乐偏移（秒），供播放前用最新谱面文件刷新（避免读到旧值）</summary>
+        public void SetPlaybackOffsetSeconds(float offsetSeconds)
+        {
+            m_offsetSeconds = offsetSeconds;
         }
 
         #endregion
@@ -233,11 +258,25 @@ namespace RuntimePlayback
 
         #region 播放控制
 
-        /// <summary>开始播放</summary>
-        public void Play()
+        /// <summary>
+        /// 开始播放。
+        /// 音乐偏移通过调整音频起始位置实现（在音乐开头添加/减少段落）：
+        /// 谱面时间 = 音频时间 + offset，所以音频起始 = 谱面起始 - offset。
+        /// - offset&gt;0（音乐快）：音频从 startTime-offset 开始，等价于在音乐开头添加 offset 空白段；
+        /// - offset&lt;0（音乐慢）：音频从 startTime+|offset| 开始，等价于在音乐开头减少 |offset| 段落。
+        /// </summary>
+        public void Play(float startTime = 0f)
         {
-            if (m_audioSource != null && !m_audioSource.isPlaying)
-                m_audioSource.Play();
+            if (m_audioSource == null)
+            {
+                m_isPlaying = false;
+                return;
+            }
+
+            m_audioSource.Stop();
+            // 音频起始位置 = 谱面起始 - offset（钳制不小于 0）
+            m_audioSource.time = Mathf.Max(0f, startTime - m_offsetSeconds);
+            m_audioSource.Play();
             m_isPlaying = true;
         }
 
@@ -245,7 +284,9 @@ namespace RuntimePlayback
         public void Pause()
         {
             if (m_audioSource != null && m_audioSource.isPlaying)
+            {
                 m_audioSource.Pause();
+            }
             m_isPlaying = false;
         }
 
@@ -261,11 +302,11 @@ namespace RuntimePlayback
             RestoreAllCubes();
         }
 
-        /// <summary>跳转到指定时间（秒）</summary>
+        /// <summary>跳转到指定谱面时间（秒）：音频位置 = 谱面时间 - offset</summary>
         public void Seek(float time)
         {
             if (m_audioSource != null)
-                m_audioSource.time = Mathf.Max(0f, time);
+                m_audioSource.time = Mathf.Max(0f, time - m_offsetSeconds);
             UpdateAllCubes(time);
         }
 
@@ -276,18 +317,22 @@ namespace RuntimePlayback
         private void Update()
         {
             if (!m_isPlaying) return;
-            if (m_audioSource == null || m_chartData == null) return;
+            if (m_audioSource == null)
+            {
+                Stop();
+                return;
+            }
 
-            // 音频结束自动停止（clip 未分配时直接跳过，避免空引用）
-            if (m_audioSource.clip != null
-                && !m_audioSource.isPlaying
+            // 音频自然结束
+            if (m_audioSource.clip != null && !m_audioSource.isPlaying
                 && m_audioSource.time >= m_audioSource.clip.length - 0.05f)
             {
                 Pause();
                 return;
             }
 
-            UpdateAllCubes(m_audioSource.time);
+            // 谱面时间 = 音频时间 + offset（在音乐开头添加/减少段落）
+            UpdateAllCubes(m_audioSource.time + m_offsetSeconds);
         }
 
         /// <summary>

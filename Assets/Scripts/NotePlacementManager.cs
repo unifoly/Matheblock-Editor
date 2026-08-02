@@ -18,6 +18,8 @@ public class NoteJsonNode
     public float time;
     // Hold 类型专用：结束时间（非 Hold 类型为 0）
     public float endTime;
+    // Fake Note：与正常 Note 的唯一区别是击打后无特效（编辑器显示为半透明）
+    public bool isFake;
 }
 
 /// <summary>
@@ -75,10 +77,18 @@ public class NotePlacementManager : MonoBehaviour
     private const string k_actionReverseFlick = "Note_ReverseFlick";
     private const string k_actionHold = "Note_Hold";
     private const string k_actionDelete = "Note_Delete";
+    // Fake Note 切换键（默认 Tab）：按住时放置的 Note 变为 fake note（击打后无特效）
+    private const string k_actionFakeToggle = "Note_FakeToggle";
+
+    // Fake Note 半透明 alpha（编辑器内与正常 Note 的视觉区分）
+    private const float k_fakeAlpha = 0.5f;
+    private static readonly Color k_fakeColor = new Color(1f, 1f, 1f, k_fakeAlpha);
 
     // 运行时从 KeyBindingsStore 加载的快捷键映射（支持组合键）
     private List<(KeyCombo combo, NoteType type)> m_hotkeyList;
     private KeyCombo m_deleteCombo;
+    // Fake Note 切换键（默认 Tab，可重绑）
+    private KeyCombo m_fakeToggleCombo;
 
     private GridManager m_gridManager;
     private RectTransform m_playScreenRect;
@@ -143,6 +153,8 @@ public class NotePlacementManager : MonoBehaviour
     private int m_holdPendingLane;
     private float m_holdPendingTime;
     private GameObject m_holdPendingView;
+    // Hold 等待中的 Fake 状态（首尾两次按键需保持一致）
+    private bool m_holdPendingFake;
 
     // 待加载的方体轨道 Note（m_noteLayer 尚未就绪时暂存）
     private List<NoteJsonNode> m_pendingReloadNotes;
@@ -164,6 +176,8 @@ public class NotePlacementManager : MonoBehaviour
         public bool IsSelected;
         // 放置时的原始颜色（取消选中时恢复）
         public Color OriginalColor = Color.white;
+        // 是否 Fake Note（击打后无特效，编辑器中显示为半透明）
+        public bool IsFake;
     }
 
     // ---- JSON 序列化用类（与 BpmManagerUI 保持字段一致，额外增加 notes）----
@@ -175,6 +189,8 @@ public class NotePlacementManager : MonoBehaviour
         public string Charter;
         public string Illustrationer;
         public string Musician;
+        // 音乐偏移（毫秒），保留 InfoManagerUI 写入的字段，避免 Note 保存时丢失
+        public float offset;
     }
 
     [Serializable]
@@ -238,6 +254,9 @@ public class NotePlacementManager : MonoBehaviour
 
         // 删除快捷键（默认 Delete 键）
         m_deleteCombo = KeyBindingsStore.GetKeyCombo(k_actionDelete, KeyCombo.Parse("Delete"));
+
+        // Fake Note 切换键（默认 Tab，按住时放置 fake note）
+        m_fakeToggleCombo = KeyBindingsStore.GetKeyCombo(k_actionFakeToggle, KeyCombo.Parse("Tab"));
     }
 
     private void TryAddHotkey(string actionName, string defaultKey, NoteType type)
@@ -517,19 +536,22 @@ public class NotePlacementManager : MonoBehaviour
             return;
         }
 
+        // Fake Note 切换键（默认 Alt）：按住时放置 fake note（击打后无特效）
+        bool isFake = m_fakeToggleCombo.IsValid && m_fakeToggleCombo.IsHeld();
+
         foreach (var (combo, type) in m_hotkeyList)
         {
             if (combo.IsPressed())
             {
                 if (type == NoteType.Hold)
                 {
-                    HandleHoldPlacement(m_hoveredLane, m_hoveredTime);
+                    HandleHoldPlacement(m_hoveredLane, m_hoveredTime, isFake);
                 }
                 else
                 {
                     // 切换到其他 Note 类型时取消 Hold 等待
                     if (m_holdPending) CancelHoldPending();
-                    PlaceNote(type, m_hoveredLane, m_hoveredTime);
+                    PlaceNote(type, m_hoveredLane, m_hoveredTime, isFake);
                 }
             }
         }
@@ -540,7 +562,7 @@ public class NotePlacementManager : MonoBehaviour
     /// 第一次按 W：在悬停位置生成头部，进入等待状态
     /// 第二次按 W（同一列）：自动填充中间和尾部，完成 Hold
     /// </summary>
-    private void HandleHoldPlacement(int lane, float time)
+    private void HandleHoldPlacement(int lane, float time, bool isFake)
     {
         if (!m_holdPending)
         {
@@ -548,8 +570,9 @@ public class NotePlacementManager : MonoBehaviour
             m_holdPending = true;
             m_holdPendingLane = lane;
             m_holdPendingTime = time;
+            m_holdPendingFake = isFake;
             m_holdPendingView = GetOrCreateNoteView(m_noteLayer);
-            SetupNoteSprite(m_holdPendingView, m_holdHeadSprite);
+            SetupNoteSprite(m_holdPendingView, m_holdHeadSprite, isFake);
             m_holdPendingView.transform.localPosition = new Vector3(
                 m_gridManager.LaneToLocalX(lane),
                 m_gridManager.TimeToLocalY(time),
@@ -566,8 +589,9 @@ public class NotePlacementManager : MonoBehaviour
                 m_holdPending = true;
                 m_holdPendingLane = lane;
                 m_holdPendingTime = time;
+                m_holdPendingFake = isFake;
                 m_holdPendingView = GetOrCreateNoteView(m_noteLayer);
-                SetupNoteSprite(m_holdPendingView, m_holdHeadSprite);
+                SetupNoteSprite(m_holdPendingView, m_holdHeadSprite, isFake);
                 m_holdPendingView.transform.localPosition = new Vector3(
                     m_gridManager.LaneToLocalX(lane),
                     m_gridManager.TimeToLocalY(time),
@@ -598,7 +622,7 @@ public class NotePlacementManager : MonoBehaviour
                 return;
             }
 
-            PlaceHold(lane, startTime, endTime);
+            PlaceHold(lane, startTime, endTime, m_holdPendingFake);
         }
     }
 
@@ -610,21 +634,22 @@ public class NotePlacementManager : MonoBehaviour
         if (m_holdPendingView != null) m_holdPendingView.SetActive(false);
         m_holdPending = false;
         m_holdPendingView = null;
+        m_holdPendingFake = false;
     }
 
     /// <summary>
     /// 放置完整的 Hold（头 + 中间 + 尾），注册撤回/重做
     /// </summary>
-    private void PlaceHold(int lane, float startTime, float endTime)
+    private void PlaceHold(int lane, float startTime, float endTime, bool isFake)
     {
-        CreateHoldView(lane, startTime, endTime);
+        CreateHoldView(lane, startTime, endTime, isFake);
         SaveNotesToJson();
 
         UndoRedoManager.Execute(
             undo: () => { RemoveHoldAt(lane, startTime); SaveNotesToJson(); },
-            redo: () => { CreateHoldView(lane, startTime, endTime); SaveNotesToJson(); });
+            redo: () => { CreateHoldView(lane, startTime, endTime, isFake); SaveNotesToJson(); });
 
-        Debug.Log($"[NotePlacementManager] 放置 Hold: lane={lane} time={startTime:F2}s~{endTime:F2}s");
+        Debug.Log($"[NotePlacementManager] 放置 {(isFake ? "Fake " : "")}Hold: lane={lane} time={startTime:F2}s~{endTime:F2}s");
     }
 
     /// <summary>
@@ -649,7 +674,7 @@ public class NotePlacementManager : MonoBehaviour
     /// <summary>
     /// 放置一个 Note：创建视觉对象、记录数据、保存到 JSON
     /// </summary>
-    private void PlaceNote(NoteType type, int lane, float time)
+    private void PlaceNote(NoteType type, int lane, float time, bool isFake)
     {
         if (m_noteLayer == null) return;
 
@@ -660,38 +685,40 @@ public class NotePlacementManager : MonoBehaviour
             return;
         }
 
-        CreateNoteView(type, lane, time);
+        CreateNoteView(type, lane, time, isFake);
         SaveNotesToJson();
 
         // 记录到全局撤回/重做系统
         UndoRedoManager.Execute(
             undo: () => { RemoveNoteAt(lane, time); SaveNotesToJson(); },
-            redo: () => { CreateNoteView(type, lane, time); SaveNotesToJson(); });
+            redo: () => { CreateNoteView(type, lane, time, isFake); SaveNotesToJson(); });
 
-        Debug.Log($"[NotePlacementManager] 放置 {type} Note: lane={lane} time={time:F2}s");
+        Debug.Log($"[NotePlacementManager] 放置 {(isFake ? "Fake " : "")}{type} Note: lane={lane} time={time:F2}s");
     }
 
     /// <summary>
-    /// 设置 Note 视觉对象的图片（提取公共逻辑）
+    /// 设置 Note 视觉对象的图片（提取公共逻辑），Fake Note 以半透明显示
     /// </summary>
-    private void SetupNoteSprite(GameObject view, Sprite sprite)
+    private void SetupNoteSprite(GameObject view, Sprite sprite, bool isFake = false)
     {
         var img = view.GetComponent<Image>();
         if (sprite != null)
         {
             img.sprite = sprite;
-            img.color = Color.white;
+            img.color = isFake ? k_fakeColor : Color.white;
         }
         else
         {
-            img.color = m_fallbackColor;
+            Color fallback = m_fallbackColor;
+            fallback.a = isFake ? k_fakeAlpha : fallback.a;
+            img.color = fallback;
         }
     }
 
     /// <summary>
     /// 创建 Hold 视觉对象（头 + 中间平铺 + 尾），加入数据列表
     /// </summary>
-    private void CreateHoldView(int lane, float startTime, float endTime)
+    private void CreateHoldView(int lane, float startTime, float endTime, bool isFake = false)
     {
         if (m_noteLayer == null) return;
 
@@ -701,7 +728,7 @@ public class NotePlacementManager : MonoBehaviour
 
         // 头部（使用尾部贴图）
         GameObject headView = GetOrCreateNoteView(m_noteLayer);
-        SetupNoteSprite(headView, m_holdTailSprite);
+        SetupNoteSprite(headView, m_holdTailSprite, isFake);
         headView.transform.localPosition = new Vector3(cachedX, startY, 0);
         // 整体 Y 轴翻转（贴图方向需要翻转）
         headView.transform.localScale = new Vector3(1, -1, 1);
@@ -715,7 +742,7 @@ public class NotePlacementManager : MonoBehaviour
             GameObject midView = GetOrCreateNoteView(m_noteLayer);
             var midImg = midView.GetComponent<Image>();
             midImg.sprite = m_holdMidSprite;
-            midImg.color = Color.white;
+            midImg.color = isFake ? k_fakeColor : Color.white;
             midImg.type = Image.Type.Simple;
             midImg.preserveAspect = false;
 
@@ -731,7 +758,7 @@ public class NotePlacementManager : MonoBehaviour
 
         // 尾部（使用头部贴图）
         GameObject tailView = GetOrCreateNoteView(m_noteLayer);
-        SetupNoteSprite(tailView, m_holdHeadSprite);
+        SetupNoteSprite(tailView, m_holdHeadSprite, isFake);
         tailView.transform.localPosition = new Vector3(cachedX, endY, 0);
         tailView.transform.localScale = new Vector3(1, -1, 1);
         extraViews.Add(tailView);
@@ -745,7 +772,8 @@ public class NotePlacementManager : MonoBehaviour
             View = headView,
             CachedLocalX = cachedX,
             ExtraViews = extraViews,
-            OriginalColor = m_holdTailSprite != null ? Color.white : m_fallbackColor
+            IsFake = isFake,
+            OriginalColor = m_holdTailSprite != null ? (isFake ? k_fakeColor : Color.white) : GetFallbackColor(isFake)
         });
     }
 
@@ -777,9 +805,19 @@ public class NotePlacementManager : MonoBehaviour
     }
 
     /// <summary>
+    /// 获取 Note 的原始颜色（Fake Note 应用半透明 alpha）
+    /// </summary>
+    private Color GetFallbackColor(bool isFake)
+    {
+        Color color = m_fallbackColor;
+        color.a = isFake ? k_fakeAlpha : color.a;
+        return color;
+    }
+
+    /// <summary>
     /// 创建 Note 视觉对象并加入数据列表（放置和加载共用）
     /// </summary>
-    private void CreateNoteView(NoteType type, int lane, float time)
+    private void CreateNoteView(NoteType type, int lane, float time, bool isFake = false)
     {
         GameObject view = GetOrCreateNoteView(m_noteLayer);
         // 缓存放置时的 X 坐标，改变竖线数量后不再重新计算
@@ -794,11 +832,11 @@ public class NotePlacementManager : MonoBehaviour
         if (sprite != null)
         {
             img.sprite = sprite;
-            img.color = Color.white;
+            img.color = isFake ? k_fakeColor : Color.white;
         }
         else
         {
-            img.color = m_fallbackColor;
+            img.color = GetFallbackColor(isFake);
         }
 
         // 倒置 Flick：复用 flick 贴图，Y 轴翻转
@@ -813,7 +851,8 @@ public class NotePlacementManager : MonoBehaviour
             Time = time,
             View = view,
             CachedLocalX = cachedX,
-            OriginalColor = GetSpriteForType(type) != null ? Color.white : m_fallbackColor
+            IsFake = isFake,
+            OriginalColor = GetSpriteForType(type) != null ? (isFake ? k_fakeColor : Color.white) : GetFallbackColor(isFake)
         });
     }
 
@@ -869,6 +908,7 @@ public class NotePlacementManager : MonoBehaviour
             NoteType type = note.Type;
             float startTime = note.Time;
             float endTime = note.EndTime;
+            bool isFake = note.IsFake;
 
             if (type == NoteType.Hold)
             {
@@ -876,7 +916,7 @@ public class NotePlacementManager : MonoBehaviour
                 SaveNotesToJson();
 
                 UndoRedoManager.Execute(
-                    undo: () => { CreateHoldView(lane, startTime, endTime); SaveNotesToJson(); },
+                    undo: () => { CreateHoldView(lane, startTime, endTime, isFake); SaveNotesToJson(); },
                     redo: () => { RemoveHoldAt(lane, startTime); SaveNotesToJson(); });
             }
             else
@@ -885,7 +925,7 @@ public class NotePlacementManager : MonoBehaviour
                 SaveNotesToJson();
 
                 UndoRedoManager.Execute(
-                    undo: () => { CreateNoteView(type, lane, time); SaveNotesToJson(); },
+                    undo: () => { CreateNoteView(type, lane, time, isFake); SaveNotesToJson(); },
                     redo: () => { RemoveNoteAt(lane, time); SaveNotesToJson(); });
             }
 
@@ -941,7 +981,8 @@ public class NotePlacementManager : MonoBehaviour
                 type = note.Type.ToString(),
                 lane = note.Lane,
                 time = Mathf.Round(note.Time * 100f) / 100f,
-                endTime = (note.Type == NoteType.Hold) ? Mathf.Round(note.EndTime * 100f) / 100f : 0f
+                endTime = (note.Type == NoteType.Hold) ? Mathf.Round(note.EndTime * 100f) / 100f : 0f,
+                isFake = note.IsFake
             });
         }
         return result;
@@ -982,11 +1023,11 @@ public class NotePlacementManager : MonoBehaviour
             {
                 if (type == NoteType.Hold && node.endTime > 0f)
                 {
-                    CreateHoldView(node.lane, node.time, node.endTime);
+                    CreateHoldView(node.lane, node.time, node.endTime, node.isFake);
                 }
                 else
                 {
-                    CreateNoteView(type, node.lane, node.time);
+                    CreateNoteView(type, node.lane, node.time, node.isFake);
                 }
             }
         }
@@ -1461,7 +1502,9 @@ public class NotePlacementManager : MonoBehaviour
                     var extraImg = v.GetComponent<Image>();
                     if (extraImg != null)
                     {
-                        extraImg.color = note.IsSelected ? m_selectedColor : Color.white;
+                        extraImg.color = note.IsSelected
+                            ? m_selectedColor
+                            : (note.IsFake ? k_fakeColor : Color.white);
                     }
                 }
             }
@@ -1476,14 +1519,14 @@ public class NotePlacementManager : MonoBehaviour
     public void DeleteSelectedNotes()
     {
         // 捕获被删除 Note 的数据，供撤回恢复
-        var deletedNotes = new List<(NoteType type, int lane, float time, float endTime)>();
+        var deletedNotes = new List<(NoteType type, int lane, float time, float endTime, bool isFake)>();
 
         for (int i = m_notes.Count - 1; i >= 0; i--)
         {
             if (!m_notes[i].IsSelected) continue;
 
             var note = m_notes[i];
-            deletedNotes.Add((note.Type, note.Lane, note.Time, note.EndTime));
+            deletedNotes.Add((note.Type, note.Lane, note.Time, note.EndTime, note.IsFake));
 
             if (note.Type == NoteType.Hold)
             {
@@ -1504,24 +1547,24 @@ public class NotePlacementManager : MonoBehaviour
         if (m_holdPending) CancelHoldPending();
 
         // 捕获副本供 lambda 闭包使用
-        var captured = new List<(NoteType type, int lane, float time, float endTime)>(deletedNotes);
+        var captured = new List<(NoteType type, int lane, float time, float endTime, bool isFake)>(deletedNotes);
 
         UndoRedoManager.Execute(
             undo: () =>
             {
-                foreach (var (type, lane, time, endTime) in captured)
+                foreach (var (type, lane, time, endTime, isFake) in captured)
                 {
                     if (type == NoteType.Hold)
-                        CreateHoldView(lane, time, endTime);
+                        CreateHoldView(lane, time, endTime, isFake);
                     else
-                        CreateNoteView(type, lane, time);
+                        CreateNoteView(type, lane, time, isFake);
                 }
                 SaveNotesToJson();
                 m_playbackController?.ClearPlaybackNotes();
             },
             redo: () =>
             {
-                foreach (var (type, lane, time, endTime) in captured)
+                foreach (var (type, lane, time, endTime, isFake) in captured)
                 {
                     if (type == NoteType.Hold)
                         RemoveHoldAt(lane, time);
@@ -1762,7 +1805,8 @@ public class NotePlacementManager : MonoBehaviour
                     type = note.Type.ToString(),
                     lane = note.Lane,
                     time = Mathf.Round(note.Time * 100f) / 100f,
-                    endTime = (note.Type == NoteType.Hold) ? Mathf.Round(note.EndTime * 100f) / 100f : 0f
+                    endTime = (note.Type == NoteType.Hold) ? Mathf.Round(note.EndTime * 100f) / 100f : 0f,
+                    isFake = note.IsFake
                 });
             }
 
@@ -1815,11 +1859,11 @@ public class NotePlacementManager : MonoBehaviour
 
                 if (type == NoteType.Hold && node.endTime > 0f)
                 {
-                    CreateHoldView(node.lane, node.time, node.endTime);
+                    CreateHoldView(node.lane, node.time, node.endTime, node.isFake);
                 }
                 else
                 {
-                    CreateNoteView(type, node.lane, node.time);
+                    CreateNoteView(type, node.lane, node.time, node.isFake);
                 }
             }
 

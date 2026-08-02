@@ -31,6 +31,7 @@ namespace RuntimePlayback
         public int lane;
         public float time;
         public float endTime;
+        public bool isFake;
     }
 
     [Serializable]
@@ -80,9 +81,20 @@ namespace RuntimePlayback
         public float bpm;
     }
 
+    /// <summary>
+    /// 谱面 info 信息（仅读取播放所需的字段，其余字段由 JsonUtility 忽略）
+    /// </summary>
+    [Serializable]
+    public class PlaybackChartInfo
+    {
+        // 音乐偏移（毫秒）：音乐快了该时长，播放时延后以对齐谱面
+        public float offset;
+    }
+
     [Serializable]
     public class PlaybackChartData
     {
+        public PlaybackChartInfo info;
         public List<PlaybackBpmNode> bpmNodes;
         public List<PlaybackCubeData> cubes;
     }

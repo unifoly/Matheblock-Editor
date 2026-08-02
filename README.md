@@ -288,6 +288,7 @@ Setting 场景关闭后，`EditorInit` 自动调用 `UndoRedoManager.ReloadShort
 | Row_Note_Flick | `Note_Flick` | `R` | Flick |
 | Row_Note_Drag | `Note_Drag` | `E` | Drag |
 | Row_Note_ReverseFlick | `Note_ReverseFlick` | `T` | ReverseFlick |
+| Row_Note_FakeToggle | `Note_FakeToggle` | `Tab` | Fake Note 切换键 |
 | Row_Undo | `Editor_Undo` | `Ctrl + Z` | 撤回 |
 | Row_Redo | `Editor_Redo` | `Ctrl + Y` | 重做 |
 | Row_ScrollUp | `Editor_ScrollUp` | `滚轮上` | 向上滚动 |
@@ -310,7 +311,7 @@ Setting 场景关闭后，`EditorInit` 自动调用 `UndoRedoManager.ReloadShort
     { "time": 3.0, "bpm": 30.0 }
   ],
   "notes": [
-    { "type": "Click", "lane": 0, "time": 1.0 }
+    { "type": "Click", "lane": 0, "time": 1.0, "isFake": false }
   ],
   "cubes": [
     {
@@ -357,7 +358,7 @@ Assets/Scripts/CubeSystem/
 {
     "info": { "MusicName": "...", "Charter": "...", "Illustrationer": "...", "Musician": "..." },
     "bpmNodes": [ {"time": 0.0, "bpm": 120.0} ],
-    "notes": [ {"type": "Click", "lane": 0, "time": 1.0} ],
+    "notes": [ {"type": "Click", "lane": 0, "time": 1.0, "isFake": false} ],
     "cubes": [
         {
             "cubeId": 1,
@@ -365,7 +366,7 @@ Assets/Scripts/CubeSystem/
             "cubeNote": "",
             "tracks": [
                 { "face": "Up", "direction": "Up", "notes": [
-                    { "type": "Click", "lane": 0, "time": 1.0 }
+                    { "type": "Click", "lane": 0, "time": 1.0, "isFake": false }
                 ] },
                 { "face": "Up", "direction": "Down", "notes": [] }
                 // ... 共24条轨道（6面 × 4方向）
@@ -489,12 +490,64 @@ CubeManagerUI 在 `Start()` 时自动绑定 UpperList 中的现有控件：
 | R | 放置 Flick Note | ✅ (`Note_Flick`) |
 | E | 放置 Drag Note | ✅ (`Note_Drag`) |
 | T | 放置 ReverseFlick Note | ✅ (`Note_ReverseFlick`) |
+| W | 放置 Hold Note | ✅ (`Note_Hold`) |
+| Tab（按住）+ Q/R/E/T/W | 放置对应类型的 Fake Note | ✅ (`Note_FakeToggle`) |
 | 滚轮上 | 向上滚动 | ✅ (`Editor_ScrollUp`) |
 | 滚轮下 | 向下滚动 | ✅ (`Editor_ScrollDown`) |
 | Ctrl + 滚轮上 | 放大 | ✅ (`Editor_ZoomIn`) |
 | Ctrl + 滚轮下 | 缩小 | ✅ (`Editor_ZoomOut`) |
 | Ctrl + E | 打开设置（Editor 模式） | ❌ |
 | Esc | 关闭设置 / 返回 | ❌ |
+
+## Fake Note（假音符）
+
+Fake Note 是五种基础 Note（Click / Flick / Drag / ReverseFlick / Hold）的变体，与正常 Note 的唯一区别是**击打（命中）后不生成打击特效**。适合制作"看似可击打但无反馈"的迷惑性谱面段落。
+
+### 放置方式
+
+按住 **Fake Note 切换键**（默认 `Tab`）同时按对应类型的 Note 快捷键，即可放置该类型的 fake note：
+
+| 操作 | 效果 |
+|------|------|
+| `Tab` + `Q` | 放置 Fake Click |
+| `Tab` + `R` | 放置 Fake Flick |
+| `Tab` + `E` | 放置 Fake Drag |
+| `Tab` + `T` | 放置 Fake ReverseFlick |
+| `Tab` + `W` | 放置 Fake Hold |
+
+切换键默认绑定 `Note_FakeToggle`（默认 `Tab`），可在设置页面的 "Fake Note 切换键" 行重绑。
+
+### 编辑器视觉区分
+
+fake note 在编辑器界面以**半透明**（alpha 0.5）显示，与正常 Note 明显区分：
+- 普通 Note：sprite 颜色白色不透明
+- Fake Note：sprite 颜色白色 50% 透明（`k_fakeAlpha = 0.5f`）
+- Hold 的头 / 中 / 尾三段均半透明，选中 / 取消选中状态同样保持半透明
+
+### 放映表现
+
+- 3D 预览中 fake note 同样以半透明显示（与编辑器一致）
+- 命中判定时**跳过打击特效**：普通 Note 的 `SpawnBurst` 与 Hold 的 `EmitHold` 均被跳过
+- 其余逻辑（下落、命中、清理、方体动画）与正常 Note 完全一致
+
+### 数据持久化
+
+fake 属性通过 `isFake` 字段贯穿全链路：编辑器放置 → chart.tmp 的 notes 字段（`NoteJsonNode`）→ 方体轨道存储（`CubeNoteData`）→ 运行时播放模型（`PlaybackNoteData`），保存后重新加载仍保持 fake 状态：
+
+```json
+{ "type": "Click", "lane": 0, "time": 1.0, "isFake": true }
+```
+
+### 关键实现
+
+| 文件 | 改动 |
+|------|------|
+| `NotePlacementManager.cs` | 新增 `Note_FakeToggle` 动作与 `m_fakeToggleCombo`，放置 / 撤销 / 重做 / 删除时透传 `isFake`，半透明显示 |
+| `KeyBindingsStore.cs` | `KeyCombo` 支持纯修饰键组合绑定（如仅 "Alt" / 普通键），`IsHeld()` 适配切换键检测 |
+| `PlaybackModeController.cs` | 3D 预览半透明显示；命中时按 `IsFake` 跳过打击特效 |
+| `CubeDataModels.cs` / `PlaybackDataModels.cs` | 数据模型新增 `isFake` 字段 |
+| `CubeManagerUI.cs` | 轨道存取时透传 `isFake` |
+| `Setting.unity` | 新增 `Row_Note_FakeToggle` 行（重绑按钮，默认 `Tab`） |
 
 ---
 

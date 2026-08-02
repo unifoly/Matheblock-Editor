@@ -36,6 +36,7 @@ public class InfoManagerUI : MonoBehaviour
     private TMP_InputField m_charterInput;
     private TMP_InputField m_musicianInput;
     private TMP_InputField m_illustrationerInput;
+    private TMP_InputField m_offsetInput;
     private Image m_previewImage;
 
     // 撤回功能：记录编辑前的状态快照
@@ -53,6 +54,8 @@ public class InfoManagerUI : MonoBehaviour
         public string Charter;
         public string Illustrationer;
         public string Musician;
+        // 音乐偏移（毫秒）：音乐快了 offset 毫秒，播放时将其延后以对齐谱面
+        public float offset;
     }
 
     [Serializable]
@@ -151,6 +154,10 @@ public class InfoManagerUI : MonoBehaviour
     /// </summary>
     private void HandleBackButtonClicked()
     {
+        // 兜底保存：确保 offset 等输入在关闭面板时一定写入 chart.tmp
+        // （onEndEdit 在输入框未聚焦或面板直接关闭时可能不触发）
+        SaveInfoToJson();
+
         m_infoPanel.SetActive(false);
         SetOriginalButtonsActive(true);
     }
@@ -318,11 +325,16 @@ public class InfoManagerUI : MonoBehaviour
         m_musicianInput = BuildInfoRow(contentGo.transform, "曲师名", "");
         m_illustrationerInput = BuildInfoRow(contentGo.transform, "曲绘作者", "");
 
+        // offset 行：音乐偏移（毫秒，单位已隐含在语义中），仅允许输入数字
+        m_offsetInput = BuildInfoRow(contentGo.transform, "offset", "0");
+        m_offsetInput.contentType = TMP_InputField.ContentType.DecimalNumber;
+
         // 所有输入框编辑结束时记录撤回并保存
         m_musicNameInput.onEndEdit.AddListener(_ => HandleInputEndEdit());
         m_charterInput.onEndEdit.AddListener(_ => HandleInputEndEdit());
         m_musicianInput.onEndEdit.AddListener(_ => HandleInputEndEdit());
         m_illustrationerInput.onEndEdit.AddListener(_ => HandleInputEndEdit());
+        m_offsetInput.onEndEdit.AddListener(_ => HandleInputEndEdit());
 
         // 曲绘预览
         BuildPreviewArea(contentGo.transform);
@@ -555,6 +567,7 @@ public class InfoManagerUI : MonoBehaviour
             m_charterInput.text = data.info.Charter ?? "";
             m_musicianInput.text = data.info.Musician ?? "";
             m_illustrationerInput.text = data.info.Illustrationer ?? "";
+            m_offsetInput.text = data.info.offset.ToString("0.####", System.Globalization.CultureInfo.InvariantCulture);
 
             // 记录初始状态（用于检测编辑变化）
             m_lastSavedState = CaptureCurrentInputs();
@@ -575,7 +588,7 @@ public class InfoManagerUI : MonoBehaviour
 
         // 输入框在首次打开 Info 面板时才创建（懒加载），未打开时跳过 Info 保存
         if (m_musicNameInput == null || m_charterInput == null ||
-            m_musicianInput == null || m_illustrationerInput == null)
+            m_musicianInput == null || m_illustrationerInput == null || m_offsetInput == null)
         {
             Debug.Log($"[{GetType().Name}] Info 面板未打开，跳过 Info 保存");
             return;
@@ -600,7 +613,8 @@ public class InfoManagerUI : MonoBehaviour
                 MusicName = m_musicNameInput.text,
                 Charter = m_charterInput.text,
                 Musician = m_musicianInput.text,
-                Illustrationer = m_illustrationerInput.text
+                Illustrationer = m_illustrationerInput.text,
+                offset = ParseOffsetInput()
             };
 
             var jsonStr = JsonUtility.ToJson(data);
@@ -658,8 +672,27 @@ public class InfoManagerUI : MonoBehaviour
             MusicName = m_musicNameInput.text,
             Charter = m_charterInput.text,
             Musician = m_musicianInput.text,
-            Illustrationer = m_illustrationerInput.text
+            Illustrationer = m_illustrationerInput.text,
+            offset = ParseOffsetInput()
         };
+    }
+
+    /// <summary>
+    /// 解析 offset 输入框为毫秒值（非法输入按 0 处理）
+    /// </summary>
+    private float ParseOffsetInput()
+    {
+        if (m_offsetInput == null) return 0f;
+
+        if (float.TryParse(m_offsetInput.text,
+                System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture,
+                out float offset))
+        {
+            return offset;
+        }
+
+        return 0f;
     }
 
     /// <summary>
@@ -671,6 +704,7 @@ public class InfoManagerUI : MonoBehaviour
         m_charterInput.text = state.Charter ?? "";
         m_musicianInput.text = state.Musician ?? "";
         m_illustrationerInput.text = state.Illustrationer ?? "";
+        m_offsetInput.text = state.offset.ToString("0.####", System.Globalization.CultureInfo.InvariantCulture);
     }
 
     /// <summary>
@@ -681,7 +715,8 @@ public class InfoManagerUI : MonoBehaviour
         return a.MusicName == b.MusicName
             && a.Charter == b.Charter
             && a.Musician == b.Musician
-            && a.Illustrationer == b.Illustrationer;
+            && a.Illustrationer == b.Illustrationer
+            && Mathf.Abs(a.offset - b.offset) < 0.001f;
     }
 
     #endregion

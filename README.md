@@ -2,7 +2,7 @@
 
 基于 Unity 的节奏游戏谱面编辑器，支持变 BPM、六边形网格与完整的设置系统。
 
-> 当前版本：**0.1.0a**
+> 当前版本：**0.1.1a**
 
 ## 技术栈
 
@@ -494,7 +494,7 @@ CubeManagerUI 在 `Start()` 时自动绑定 UpperList 中的现有控件：
 | E | 放置 Drag Note | ✅ (`Note_Drag`) |
 | T | 放置 ReverseFlick Note | ✅ (`Note_ReverseFlick`) |
 | W | 放置 Hold Note | ✅ (`Note_Hold`) |
-| Tab（按住）+ Q/R/E/T/W | 放置对应类型的 Fake Note | ✅ (`Note_FakeToggle`) |
+| Tab（切换/按住）+ Q/R/E/T/W | 放置对应类型的 Fake Note | ✅ (`Note_FakeToggle`) |
 | 滚轮上 | 向上滚动 | ✅ (`Editor_ScrollUp`) |
 | 滚轮下 | 向下滚动 | ✅ (`Editor_ScrollDown`) |
 | Ctrl + 滚轮上 | 放大 | ✅ (`Editor_ZoomIn`) |
@@ -508,15 +508,22 @@ Fake Note 是五种基础 Note（Click / Flick / Drag / ReverseFlick / Hold）�
 
 ### 放置方式
 
-按住 **Fake Note 切换键**（默认 `Tab`）同时按对应类型的 Note 快捷键，即可放置该类型的 fake note：
+Fake Note 的放置模式可在「编辑器设置」中选择（默认**切换**模式），两种模式均使用 **Fake Note 切换键**（默认 `Tab`）配合对应类型的 Note 快捷键操作：
+
+| 模式 | 操作方式 |
+|------|----------|
+| 切换（默认） | 按一次 `Tab` 开启 Fake 模式，再按一次关闭；开启期间悬停指示器变红，放置的所有 Note 均为 fake note |
+| 按住 | 按住 `Tab` 的同时按对应类型的 Note 快捷键，放置 fake note |
+
+任意模式下，按住/激活期间以下组合均有效：
 
 | 操作 | 效果 |
 |------|------|
-| `Tab` + `Q` | 放置 Fake Click |
-| `Tab` + `R` | 放置 Fake Flick |
-| `Tab` + `E` | 放置 Fake Drag |
-| `Tab` + `T` | 放置 Fake ReverseFlick |
-| `Tab` + `W` | 放置 Fake Hold |
+| Fake 模式 + `Q` | 放置 Fake Click |
+| Fake 模式 + `R` | 放置 Fake Flick |
+| Fake 模式 + `E` | 放置 Fake Drag |
+| Fake 模式 + `T` | 放置 Fake ReverseFlick |
+| Fake 模式 + `W` | 放置 Fake Hold |
 
 切换键默认绑定 `Note_FakeToggle`（默认 `Tab`），可在设置页面的 "Fake Note 切换键" 行重绑。
 

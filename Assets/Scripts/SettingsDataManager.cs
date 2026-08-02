@@ -18,6 +18,10 @@ namespace HexMap
         // 画质字段在 Settings.json 中的键名，用于区分旧存档（无画质字段时保持默认）
         private const string k_qualityFieldName = "qualityLevel";
 
+        // Fake Note 放置模式
+        public const int FakeNoteModeToggle = 0; // 切换：按一次 Tab 开启，再按一次关闭
+        public const int FakeNoteModeHold = 1;   // 按住：按住 Tab 时放置 Fake Note
+
         private static string s_filePath;
 
         // 序列化用数据类
@@ -30,6 +34,7 @@ namespace HexMap
             public int resolutionIndex = 0;
             public int autoSaveMinutes = 10;
             public int qualityLevel = 3; // 默认高画质（QualitySettings 索引，索引 3 = High）
+            public int fakeNoteMode = 0; // 默认切换模式（0=切换，1=按住）
         }
 
         public static float MasterVolume { get; set; } = 1f;
@@ -41,6 +46,11 @@ namespace HexMap
         /// 画质等级索引（对应 QualitySettings.names），默认高画质
         /// </summary>
         public static int QualityLevel { get; set; } = FindQualityIndex(k_defaultQualityName);
+
+        /// <summary>
+        /// Fake Note 放置模式（0=切换，1=按住）
+        /// </summary>
+        public static int FakeNoteMode { get; set; } = FakeNoteModeToggle;
 
         /// <summary>
         /// 自动保存间隔（分钟），0 表示关闭自动保存
@@ -116,6 +126,9 @@ namespace HexMap
                     QualityLevel = json.Contains(k_qualityFieldName)
                         ? Mathf.Clamp(data.qualityLevel, 0, Mathf.Max(0, QualitySettings.names.Length - 1))
                         : FindQualityIndex(k_defaultQualityName);
+
+                    // 旧存档没有 fakeNoteMode 字段时由字段初始化器回退为默认（0=切换），这里仅做范围校验
+                    FakeNoteMode = Mathf.Clamp(data.fakeNoteMode, FakeNoteModeToggle, FakeNoteModeHold);
                 }
             }
             catch (Exception ex)
@@ -164,7 +177,8 @@ namespace HexMap
                 sfxVolume = SFXVolume,
                 resolutionIndex = ResolutionIndex,
                 autoSaveMinutes = AutoSaveMinutes,
-                qualityLevel = QualityLevel
+                qualityLevel = QualityLevel,
+                fakeNoteMode = FakeNoteMode
             };
 
             try
@@ -210,6 +224,7 @@ namespace HexMap
             ResolutionIndex = 0;
             AutoSaveMinutes = 10;
             QualityLevel = FindQualityIndex(k_defaultQualityName);
+            FakeNoteMode = FakeNoteModeToggle;
             Save();
         }
     }

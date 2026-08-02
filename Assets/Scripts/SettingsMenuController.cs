@@ -54,7 +54,7 @@ namespace HexMap
         {
             HideAllPages();
             WireUpButtons();
-            CreateQualityRow();
+            CreateEditorSettingsRows();
             BindPageControls();
         }
 
@@ -158,25 +158,32 @@ namespace HexMap
                     }
                 }
 
-                // 滑块
-                var slider = child.GetComponent<Slider>();
-                if (slider != null && name.StartsWith("Row_"))
+                // 控件可能位于 Row_ 行自身，也可能位于行内子对象（兼容场景与运行时创建两种结构）
+                if (name.StartsWith("Row_"))
                 {
-                    BindSlider(slider, name);
-                }
+                    // 滑块
+                    var slider = child.GetComponent<Slider>();
+                    if (slider == null) slider = child.GetComponentInChildren<Slider>(true);
+                    if (slider != null)
+                    {
+                        BindSlider(slider, name);
+                    }
 
-                // 输入框
-                var inputField = child.GetComponent<TMP_InputField>();
-                if (inputField != null && name.StartsWith("Row_"))
-                {
-                    BindInputField(inputField, name);
-                }
+                    // 输入框
+                    var inputField = child.GetComponent<TMP_InputField>();
+                    if (inputField == null) inputField = child.GetComponentInChildren<TMP_InputField>(true);
+                    if (inputField != null)
+                    {
+                        BindInputField(inputField, name);
+                    }
 
-                // 下拉框
-                var dropdown = child.GetComponent<TMP_Dropdown>();
-                if (dropdown != null && name.StartsWith("Row_"))
-                {
-                    BindDropdown(dropdown, name);
+                    // 下拉框
+                    var dropdown = child.GetComponent<TMP_Dropdown>();
+                    if (dropdown == null) dropdown = child.GetComponentInChildren<TMP_Dropdown>(true);
+                    if (dropdown != null)
+                    {
+                        BindDropdown(dropdown, name);
+                    }
                 }
 
                 // 递归
@@ -256,6 +263,16 @@ namespace HexMap
                         SettingsDataManager.Save();
                     });
                     break;
+
+                case "Row_FakeNoteMode":
+                    // 显示当前 Fake Note 放置模式（0=切换，1=按住），变更时持久化
+                    dropdown.value = SettingsDataManager.FakeNoteMode;
+                    dropdown.onValueChanged.AddListener(v =>
+                    {
+                        SettingsDataManager.FakeNoteMode = v;
+                        SettingsDataManager.Save();
+                    });
+                    break;
             }
         }
 
@@ -285,21 +302,33 @@ namespace HexMap
         private static readonly string[] k_qualityDisplayNames = { "极低", "低", "中", "高", "很高", "极高" };
 
         /// <summary>
-        /// 在编辑器设置页（Page_Editor）顶部动态创建“画质”下拉行，
+        /// 在编辑器设置页（Page_Editor）动态创建下拉设置行（画质、Fake Note 放置模式），
         /// 运行时创建以避免直接修改场景 YAML 的脆弱性
         /// </summary>
-        private void CreateQualityRow()
+        private void CreateEditorSettingsRows()
         {
             Transform content = FindEditorSettingsContent();
             if (content == null)
             {
-                Debug.LogWarning($"[{GetType().Name}] 未找到编辑器设置页内容容器，跳过画质下拉创建", this);
+                Debug.LogWarning($"[{GetType().Name}] 未找到编辑器设置页内容容器，跳过下拉行创建", this);
                 return;
             }
 
+            // 画质下拉（第一行）
+            CreateDropdownRow(content, "Row_Quality", "画质", BuildQualityOptions(), 0);
+
+            // Fake Note 放置模式下拉（第二行）
+            CreateDropdownRow(content, "Row_FakeNoteMode", "Fake Note 放置", new List<string> { "切换", "按住" }, 1);
+        }
+
+        /// <summary>
+        /// 创建下拉设置行（水平布局：左侧标签 + 右侧下拉框），插入到指定兄弟索引
+        /// </summary>
+        private TMP_Dropdown CreateDropdownRow(Transform content, string rowName, string labelText, List<string> options, int siblingIndex)
+        {
             // 行容器（水平布局：左侧标签 + 右侧下拉框）
-            var rowGo = CreateUIObject("Row_Quality", content);
-            rowGo.transform.SetAsFirstSibling();
+            var rowGo = CreateUIObject(rowName, content);
+            rowGo.transform.SetSiblingIndex(siblingIndex);
 
             var rowRect = rowGo.GetComponent<RectTransform>();
             rowRect.anchorMin = Vector2.zero;
@@ -318,8 +347,8 @@ namespace HexMap
             rowLayoutElement.minHeight = 64f;
             rowLayoutElement.flexibleWidth = 1f;
 
-            CreateRowLabel(rowGo.transform);
-            CreateQualityDropdown(rowGo.transform);
+            CreateRowLabel(rowGo.transform, labelText);
+            return CreateDropdown(rowGo.transform, options);
         }
 
         /// <summary>
@@ -346,9 +375,9 @@ namespace HexMap
         }
 
         /// <summary>
-        /// 创建行左侧的“画质”标签
+        /// 创建行左侧的标签文本
         /// </summary>
-        private void CreateRowLabel(Transform parent)
+        private void CreateRowLabel(Transform parent, string text)
         {
             var labelGo = CreateUIObject("Text (TMP)", parent);
             var labelRect = labelGo.GetComponent<RectTransform>();
@@ -358,11 +387,11 @@ namespace HexMap
             labelRect.offsetMax = Vector2.zero;
 
             var layoutElement = labelGo.AddComponent<LayoutElement>();
-            layoutElement.minWidth = 120f;
+            layoutElement.minWidth = 180f;
             layoutElement.flexibleWidth = 0f;
 
             var label = labelGo.AddComponent<TextMeshProUGUI>();
-            label.text = "画质";
+            label.text = text;
             label.fontSize = 22f;
             label.color = Color.white;
             label.alignment = TextAlignmentOptions.MidlineLeft;
@@ -370,11 +399,11 @@ namespace HexMap
         }
 
         /// <summary>
-        /// 创建行右侧的画质下拉框，选项与 QualitySettings 等级一一对应
+        /// 创建行右侧的下拉框（选项列表由调用方指定）
         /// </summary>
-        private TMP_Dropdown CreateQualityDropdown(Transform parent)
+        private TMP_Dropdown CreateDropdown(Transform parent, List<string> options)
         {
-            var go = CreateUIObject("QualityDropdown", parent);
+            var go = CreateUIObject("Dropdown", parent);
             var rect = go.GetComponent<RectTransform>();
             rect.anchorMin = Vector2.zero;
             rect.anchorMax = Vector2.one;
@@ -502,7 +531,7 @@ namespace HexMap
             dropdown.itemText = itemLabelText;
 
             dropdown.ClearOptions();
-            dropdown.AddOptions(BuildQualityOptions());
+            dropdown.AddOptions(options);
 
             template.SetActive(false);
 
@@ -548,7 +577,7 @@ namespace HexMap
             }
 
             m_chineseFont = TMP_FontAsset.CreateFontAsset(sourceFont);
-            m_chineseFont.TryAddCharacters("画质极低中高很低");
+            m_chineseFont.TryAddCharacters("画质极低中高很低切换按住Fake Note 放置");
 
             return m_chineseFont;
         }

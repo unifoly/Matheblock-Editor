@@ -83,12 +83,16 @@ public class NotePlacementManager : MonoBehaviour
     // Fake Note 半透明 alpha（编辑器内与正常 Note 的视觉区分）
     private const float k_fakeAlpha = 0.5f;
     private static readonly Color k_fakeColor = new Color(1f, 1f, 1f, k_fakeAlpha);
+    // Fake Note 激活时悬停指示器颜色（红色提示，与正常白色指示器区分）
+    private static readonly Color k_fakeHoverColor = new Color(0.9f, 0.35f, 0.35f, 0.5f);
 
     // 运行时从 KeyBindingsStore 加载的快捷键映射（支持组合键）
     private List<(KeyCombo combo, NoteType type)> m_hotkeyList;
     private KeyCombo m_deleteCombo;
     // Fake Note 切换键（默认 Tab，可重绑）
     private KeyCombo m_fakeToggleCombo;
+    // 切换模式下 Fake Note 的激活状态（按住模式下不使用，直接读取快捷键按住状态）
+    private bool m_fakeModeActive;
 
     private GridManager m_gridManager;
     private RectTransform m_playScreenRect;
@@ -506,6 +510,14 @@ public class NotePlacementManager : MonoBehaviour
         float x = m_gridManager.LaneToLocalX(m_hoveredLane);
         float y = m_gridManager.TimeToLocalY(m_hoveredTime);
         m_hoverIndicator.transform.localPosition = new Vector3(x, y, 0);
+
+        // Fake Note 激活时指示器显示为红色，提示当前放置的将是 Fake Note
+        var hoverImage = m_hoverIndicator.GetComponent<Image>();
+        if (hoverImage != null)
+        {
+            hoverImage.color = IsFakeModeActive() ? k_fakeHoverColor : m_hoverColor;
+        }
+
         m_hoverIndicator.SetActive(true);
     }
 
@@ -514,10 +526,13 @@ public class NotePlacementManager : MonoBehaviour
     /// </summary>
     private void HandlePlacementInput()
     {
-        if (!m_isHovering || m_hotkeyList == null) return;
-
         // 文本输入框获焦时跳过快捷键，避免与文本编辑冲突
         if (UndoRedoManager.IsTextInputFocused()) return;
+
+        // 切换模式下响应 Tab 翻转 Fake Note 状态（无需悬停，允许先切换再放置）
+        UpdateFakeModeState();
+
+        if (!m_isHovering || m_hotkeyList == null) return;
 
         // Esc 取消 Hold 等待状态
         if (m_holdPending && Input.GetKeyDown(KeyCode.Escape))
@@ -540,8 +555,8 @@ public class NotePlacementManager : MonoBehaviour
             return;
         }
 
-        // Fake Note 切换键（默认 Alt）：按住时放置 fake note（击打后无特效）
-        bool isFake = m_fakeToggleCombo.IsValid && m_fakeToggleCombo.IsHeld();
+        // Fake Note（默认 Tab）：按住模式=按住快捷键，切换模式=切换开关状态
+        bool isFake = IsFakeModeActive();
 
         foreach (var (combo, type) in m_hotkeyList)
         {
@@ -559,6 +574,45 @@ public class NotePlacementManager : MonoBehaviour
                 }
             }
         }
+    }
+
+    /// <summary>
+    /// 更新切换模式下 Fake Note 的激活状态：按一次 Tab 翻转一次并给出日志反馈。
+    /// 按住模式不维护状态（由 IsFakeModeActive 直接读取快捷键按住状态）。
+    /// </summary>
+    private void UpdateFakeModeState()
+    {
+        if (!m_fakeToggleCombo.IsValid)
+        {
+            return;
+        }
+
+        if (SettingsDataManager.FakeNoteMode != SettingsDataManager.FakeNoteModeToggle)
+        {
+            return;
+        }
+
+        if (m_fakeToggleCombo.IsPressed())
+        {
+            m_fakeModeActive = !m_fakeModeActive;
+            Debug.Log($"[NotePlacementManager] Fake Note 放置已{(m_fakeModeActive ? "开启" : "关闭")}（Tab 切换）");
+        }
+    }
+
+    /// <summary>
+    /// 当前是否应放置 Fake Note：
+    /// 按住模式 = 快捷键按住中；切换模式 = 切换开关已开启
+    /// </summary>
+    private bool IsFakeModeActive()
+    {
+        if (!m_fakeToggleCombo.IsValid)
+        {
+            return false;
+        }
+
+        return SettingsDataManager.FakeNoteMode == SettingsDataManager.FakeNoteModeHold
+            ? m_fakeToggleCombo.IsHeld()
+            : m_fakeModeActive;
     }
 
     /// <summary>

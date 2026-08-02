@@ -28,6 +28,7 @@ namespace HexMap
         [SerializeField] private Color m_inactiveColor = new Color(0.226f, 0.226f, 0.226f);
 
         private Button m_currentActiveButton;
+        private TMP_FontAsset m_chineseFont;
 
         /// <summary>
         /// 左侧菜单条目所在容器（滚动列表 Content 或菜单按钮的父节点），
@@ -53,6 +54,7 @@ namespace HexMap
         {
             HideAllPages();
             WireUpButtons();
+            CreateQualityRow();
             BindPageControls();
         }
 
@@ -242,15 +244,18 @@ namespace HexMap
 
         private void BindDropdown(TMP_Dropdown dropdown, string rowName)
         {
-            if (rowName == "Row_Quality")
+            switch (rowName)
             {
-                dropdown.value = SettingsDataManager.QualityLevel;
-                dropdown.onValueChanged.AddListener(v =>
-                {
-                    SettingsDataManager.QualityLevel = v;
-                    SettingsDataManager.ApplySettings();
-                    SettingsDataManager.Save();
-                });
+                case "Row_Quality":
+                    // 显示当前画质等级，变更时立即应用并持久化
+                    dropdown.value = SettingsDataManager.QualityLevel;
+                    dropdown.onValueChanged.AddListener(v =>
+                    {
+                        SettingsDataManager.QualityLevel = v;
+                        SettingsDataManager.ApplySettings();
+                        SettingsDataManager.Save();
+                    });
+                    break;
             }
         }
 
@@ -273,5 +278,281 @@ namespace HexMap
                 }
             }
         }
+
+        #region 画质下拉动态创建
+
+        // 画质选项显示名（与 ProjectSettings/QualitySettings.asset 的等级顺序一一对应）
+        private static readonly string[] k_qualityDisplayNames = { "极低", "低", "中", "高", "很高", "极高" };
+
+        /// <summary>
+        /// 在编辑器设置页（Page_Editor）顶部动态创建“画质”下拉行，
+        /// 运行时创建以避免直接修改场景 YAML 的脆弱性
+        /// </summary>
+        private void CreateQualityRow()
+        {
+            Transform content = FindEditorSettingsContent();
+            if (content == null)
+            {
+                Debug.LogWarning($"[{GetType().Name}] 未找到编辑器设置页内容容器，跳过画质下拉创建", this);
+                return;
+            }
+
+            // 行容器（水平布局：左侧标签 + 右侧下拉框）
+            var rowGo = CreateUIObject("Row_Quality", content);
+            rowGo.transform.SetAsFirstSibling();
+
+            var rowRect = rowGo.GetComponent<RectTransform>();
+            rowRect.anchorMin = Vector2.zero;
+            rowRect.anchorMax = Vector2.one;
+            rowRect.offsetMin = Vector2.zero;
+            rowRect.offsetMax = Vector2.zero;
+
+            var rowLayout = rowGo.AddComponent<HorizontalLayoutGroup>();
+            rowLayout.padding = new RectOffset(16, 16, 10, 10);
+            rowLayout.spacing = 16f;
+            rowLayout.childAlignment = TextAnchor.MiddleLeft;
+            rowLayout.childForceExpandWidth = true;
+            rowLayout.childControlWidth = true;
+
+            var rowLayoutElement = rowGo.AddComponent<LayoutElement>();
+            rowLayoutElement.minHeight = 64f;
+            rowLayoutElement.flexibleWidth = 1f;
+
+            CreateRowLabel(rowGo.transform);
+            CreateQualityDropdown(rowGo.transform);
+        }
+
+        /// <summary>
+        /// 定位编辑器设置页（Page_Editor）的滚动内容容器
+        /// </summary>
+        private Transform FindEditorSettingsContent()
+        {
+            for (int i = 0; i < m_menuEntries.Count; i++)
+            {
+                var pagePanel = m_menuEntries[i].pagePanel;
+                if (pagePanel == null || pagePanel.name != "Page_Editor")
+                {
+                    continue;
+                }
+
+                var layout = pagePanel.GetComponentInChildren<VerticalLayoutGroup>(true);
+                if (layout != null)
+                {
+                    return layout.transform;
+                }
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// 创建行左侧的“画质”标签
+        /// </summary>
+        private void CreateRowLabel(Transform parent)
+        {
+            var labelGo = CreateUIObject("Text (TMP)", parent);
+            var labelRect = labelGo.GetComponent<RectTransform>();
+            labelRect.anchorMin = Vector2.zero;
+            labelRect.anchorMax = Vector2.one;
+            labelRect.offsetMin = Vector2.zero;
+            labelRect.offsetMax = Vector2.zero;
+
+            var layoutElement = labelGo.AddComponent<LayoutElement>();
+            layoutElement.minWidth = 120f;
+            layoutElement.flexibleWidth = 0f;
+
+            var label = labelGo.AddComponent<TextMeshProUGUI>();
+            label.text = "画质";
+            label.fontSize = 22f;
+            label.color = Color.white;
+            label.alignment = TextAlignmentOptions.MidlineLeft;
+            label.font = GetChineseFont();
+        }
+
+        /// <summary>
+        /// 创建行右侧的画质下拉框，选项与 QualitySettings 等级一一对应
+        /// </summary>
+        private TMP_Dropdown CreateQualityDropdown(Transform parent)
+        {
+            var go = CreateUIObject("QualityDropdown", parent);
+            var rect = go.GetComponent<RectTransform>();
+            rect.anchorMin = Vector2.zero;
+            rect.anchorMax = Vector2.one;
+            rect.offsetMin = Vector2.zero;
+            rect.offsetMax = Vector2.zero;
+
+            var layoutElement = go.AddComponent<LayoutElement>();
+            layoutElement.minWidth = 200f;
+            layoutElement.flexibleWidth = 1f;
+
+            var img = go.AddComponent<Image>();
+            img.color = new Color(0.15f, 0.15f, 0.15f, 1f);
+
+            var dropdown = go.AddComponent<TMP_Dropdown>();
+
+            // 当前选项标签
+            var label = CreateUIObject("Label", go.transform);
+            var labelRect = label.GetComponent<RectTransform>();
+            labelRect.anchorMin = Vector2.zero;
+            labelRect.anchorMax = Vector2.one;
+            labelRect.offsetMin = new Vector2(12, 2);
+            labelRect.offsetMax = new Vector2(-20, -2);
+
+            var labelText = label.AddComponent<TextMeshProUGUI>();
+            labelText.fontSize = 20f;
+            labelText.color = Color.white;
+            labelText.alignment = TextAlignmentOptions.MidlineLeft;
+            labelText.font = GetChineseFont();
+
+            // 右侧箭头
+            var arrow = CreateUIObject("Arrow", go.transform);
+            var arrowRect = arrow.GetComponent<RectTransform>();
+            arrowRect.anchorMin = new Vector2(1, 0.5f);
+            arrowRect.anchorMax = new Vector2(1, 0.5f);
+            arrowRect.pivot = new Vector2(1, 0.5f);
+            arrowRect.sizeDelta = new Vector2(20, 20);
+            arrowRect.anchoredPosition = new Vector2(-4, 0);
+
+            var arrowText = arrow.AddComponent<TextMeshProUGUI>();
+            arrowText.text = "v";
+            arrowText.fontSize = 18f;
+            arrowText.color = new Color(0.7f, 0.7f, 0.7f, 1f);
+            arrowText.alignment = TextAlignmentOptions.Center;
+            arrowText.font = GetChineseFont();
+
+            // 展开模板（滚动列表）
+            var template = CreateUIObject("Template", go.transform);
+            var templateRect = template.GetComponent<RectTransform>();
+            templateRect.anchorMin = new Vector2(0, 0);
+            templateRect.anchorMax = new Vector2(1, 0);
+            templateRect.pivot = new Vector2(0.5f, 1);
+            templateRect.sizeDelta = new Vector2(0, 180);
+            templateRect.anchoredPosition = new Vector2(0, 2);
+
+            var templateImg = template.AddComponent<Image>();
+            templateImg.color = new Color(0.12f, 0.12f, 0.12f, 0.98f);
+
+            var scrollRect = template.AddComponent<ScrollRect>();
+
+            var viewport = CreateUIObject("Viewport", template.transform);
+            var viewportRect = viewport.GetComponent<RectTransform>();
+            viewportRect.anchorMin = Vector2.zero;
+            viewportRect.anchorMax = Vector2.one;
+            viewportRect.offsetMin = Vector2.zero;
+            viewportRect.offsetMax = Vector2.zero;
+            viewport.AddComponent<RectMask2D>();
+
+            var content = CreateUIObject("Content", viewport.transform);
+            var contentRect = content.GetComponent<RectTransform>();
+            contentRect.anchorMin = new Vector2(0, 1);
+            contentRect.anchorMax = new Vector2(1, 1);
+            contentRect.pivot = new Vector2(0.5f, 1);
+            contentRect.sizeDelta = new Vector2(0, 28);
+
+            scrollRect.content = contentRect;
+            scrollRect.viewport = viewportRect;
+            scrollRect.scrollSensitivity = 35f;
+
+            // 列表项
+            var item = CreateUIObject("Item", content.transform);
+            var itemRect = item.GetComponent<RectTransform>();
+            itemRect.anchorMin = new Vector2(0, 0.5f);
+            itemRect.anchorMax = new Vector2(1, 0.5f);
+            itemRect.pivot = new Vector2(0.5f, 0.5f);
+            itemRect.sizeDelta = new Vector2(0, 28);
+
+            var itemToggle = item.AddComponent<Toggle>();
+
+            var itemBg = CreateUIObject("Item Background", item.transform);
+            var itemBgRect = itemBg.GetComponent<RectTransform>();
+            itemBgRect.anchorMin = Vector2.zero;
+            itemBgRect.anchorMax = Vector2.one;
+            itemBgRect.offsetMin = Vector2.zero;
+            itemBgRect.offsetMax = Vector2.zero;
+            var itemBgImg = itemBg.AddComponent<Image>();
+            itemBgImg.color = new Color(0.2f, 0.2f, 0.25f, 1f);
+
+            var checkmark = CreateUIObject("Item Checkmark", item.transform);
+            var checkmarkRect = checkmark.GetComponent<RectTransform>();
+            checkmarkRect.anchorMin = new Vector2(0, 0.5f);
+            checkmarkRect.anchorMax = new Vector2(0, 0.5f);
+            checkmarkRect.pivot = new Vector2(0, 0.5f);
+            checkmarkRect.sizeDelta = new Vector2(20, 20);
+            checkmarkRect.anchoredPosition = new Vector2(4, 0);
+            var checkmarkImg = checkmark.AddComponent<Image>();
+            checkmarkImg.color = new Color(0.3f, 1f, 0.3f, 1f);
+
+            var itemLabelObj = CreateUIObject("Item Label", item.transform);
+            var itemLabelRect = itemLabelObj.GetComponent<RectTransform>();
+            itemLabelRect.anchorMin = Vector2.zero;
+            itemLabelRect.anchorMax = Vector2.one;
+            itemLabelRect.offsetMin = new Vector2(28, 2);
+            itemLabelRect.offsetMax = new Vector2(-4, -2);
+            var itemLabelText = itemLabelObj.AddComponent<TextMeshProUGUI>();
+            itemLabelText.fontSize = 20f;
+            itemLabelText.color = Color.white;
+            itemLabelText.font = GetChineseFont();
+
+            itemToggle.targetGraphic = itemBgImg;
+            itemToggle.graphic = checkmarkImg;
+            itemToggle.isOn = false;
+
+            dropdown.template = templateRect;
+            dropdown.captionText = labelText;
+            dropdown.itemText = itemLabelText;
+
+            dropdown.ClearOptions();
+            dropdown.AddOptions(BuildQualityOptions());
+
+            template.SetActive(false);
+
+            return dropdown;
+        }
+
+        /// <summary>
+        /// 生成画质下拉选项（中文显示名，按 QualitySettings 等级顺序）
+        /// </summary>
+        private List<string> BuildQualityOptions()
+        {
+            string[] names = QualitySettings.names;
+            var options = new List<string>(names.Length);
+            for (int i = 0; i < names.Length; i++)
+            {
+                // 数量不一致时回退为引擎原始名称，保证索引与画质等级对应
+                options.Add(i < k_qualityDisplayNames.Length ? k_qualityDisplayNames[i] : names[i]);
+            }
+
+            return options;
+        }
+
+        private GameObject CreateUIObject(string name, Transform parent)
+        {
+            var go = new GameObject(name, typeof(RectTransform));
+            go.transform.SetParent(parent, false);
+            go.layer = LayerConstants.Ui;
+            return go;
+        }
+
+        private TMP_FontAsset GetChineseFont()
+        {
+            if (m_chineseFont != null)
+            {
+                return m_chineseFont;
+            }
+
+            var sourceFont = Resources.Load<Font>("Fonts/black");
+            if (sourceFont == null)
+            {
+                Debug.LogWarning($"[{GetType().Name}] 未找到 Fonts/black 字体，使用 TMP 默认字体", this);
+                return null;
+            }
+
+            m_chineseFont = TMP_FontAsset.CreateFontAsset(sourceFont);
+            m_chineseFont.TryAddCharacters("画质极低中高很低");
+
+            return m_chineseFont;
+        }
+
+        #endregion
     }
 }

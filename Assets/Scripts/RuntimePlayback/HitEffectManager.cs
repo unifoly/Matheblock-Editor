@@ -82,6 +82,14 @@ namespace RuntimePlayback
             for (int i = m_active.Count - 1; i >= 0; i--)
             {
                 HitParticle p = m_active[i];
+
+                // 父级方体被销毁时粒子随之销毁，直接移除避免 MissingReferenceException 刷屏
+                if (p.View == null)
+                {
+                    m_active.RemoveAt(i);
+                    continue;
+                }
+
                 p.RemainingLife -= dt;
 
                 if (p.RemainingLife <= 0f)
@@ -153,6 +161,12 @@ namespace RuntimePlayback
             Vector3 planeAxisA, Vector3 planeAxisB,
             float speedMin, float speedMax, float life, int layer)
         {
+            // 父级方体可能已被销毁（销毁对象 == null），提前返回避免 SetParent 异常
+            if (parent == null)
+            {
+                return;
+            }
+
             HitParticle p = m_pool.Get();
             p.View.layer = layer;
             p.View.transform.SetParent(parent, false);
@@ -171,10 +185,26 @@ namespace RuntimePlayback
             m_active.Add(p);
         }
 
+        private void OnDestroy()
+        {
+            // 释放程序化生成的贴图，避免组件重建时纹理累积
+            if (m_squareSprite != null)
+            {
+                Destroy(m_squareSprite.texture);
+                Destroy(m_squareSprite);
+            }
+        }
+
         private void OnReleaseParticle(HitParticle p)
         {
+            // 父级方体销毁导致粒子 View 随之销毁时，无法复用，直接跳过归还
+            if (p.View == null)
+            {
+                return;
+            }
+
             // 归还池前恢复为默认层级并挂回管理器，避免残留脏状态
-            p.View.layer = 0;
+            p.View.layer = LayerConstants.Default;
             p.View.transform.SetParent(transform, false);
             p.View.SetActive(false);
         }

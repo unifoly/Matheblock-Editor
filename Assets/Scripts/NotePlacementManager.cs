@@ -101,6 +101,10 @@ public class NotePlacementManager : MonoBehaviour
     // 所有已放置的 Note 列表
     private readonly List<NoteEntry> m_notes = new List<NoteEntry>();
 
+    // GetCurrentNotes 缓存：m_notes 未变化时复用，避免播放模式每帧 new List 分配
+    private List<NoteJsonNode> m_notesCache;
+    private bool m_notesCacheDirty = true;
+
     // Note 视觉对象池（复用，避免频繁创建销毁）
     private readonly List<GameObject> m_noteViewPool = new List<GameObject>();
 
@@ -775,6 +779,7 @@ public class NotePlacementManager : MonoBehaviour
             IsFake = isFake,
             OriginalColor = m_holdTailSprite != null ? (isFake ? k_fakeColor : Color.white) : GetFallbackColor(isFake)
         });
+        m_notesCacheDirty = true;
     }
 
     /// <summary>
@@ -799,6 +804,7 @@ public class NotePlacementManager : MonoBehaviour
                     }
                 }
                 m_notes.RemoveAt(i);
+                m_notesCacheDirty = true;
                 return;
             }
         }
@@ -854,6 +860,7 @@ public class NotePlacementManager : MonoBehaviour
             IsFake = isFake,
             OriginalColor = GetSpriteForType(type) != null ? (isFake ? k_fakeColor : Color.white) : GetFallbackColor(isFake)
         });
+        m_notesCacheDirty = true;
     }
 
     /// <summary>
@@ -885,6 +892,7 @@ public class NotePlacementManager : MonoBehaviour
             {
                 m_notes[i].View.SetActive(false);
                 m_notes.RemoveAt(i);
+                m_notesCacheDirty = true;
                 return;
             }
         }
@@ -966,26 +974,35 @@ public class NotePlacementManager : MonoBehaviour
         m_selectionAnchorIndex = -1;
 
         m_notes.Clear();
+        m_notesCacheDirty = true;
     }
 
     /// <summary>
-    /// 获取当前所有已放置 Note 的数据副本（供方体系统保存到轨道）
+    /// 获取当前所有已放置 Note 的数据副本（供方体系统保存到轨道）。
+    /// 内部缓存复用，仅在 m_notes 变化时重建，避免播放模式每帧分配新列表。
     /// </summary>
     public List<NoteJsonNode> GetCurrentNotes()
     {
-        var result = new List<NoteJsonNode>(m_notes.Count);
+        if (m_notesCache != null && !m_notesCacheDirty)
+        {
+            return m_notesCache;
+        }
+
+        m_notesCache = new List<NoteJsonNode>(m_notes.Count);
         foreach (var note in m_notes)
         {
-            result.Add(new NoteJsonNode
+            m_notesCache.Add(new NoteJsonNode
             {
                 type = note.Type.ToString(),
                 lane = note.Lane,
-                time = Mathf.Round(note.Time * 100f) / 100f,
-                endTime = (note.Type == NoteType.Hold) ? Mathf.Round(note.EndTime * 100f) / 100f : 0f,
+                // 保留原始精度（浮点噪声由 BpmManagerUI.SaveBpm 的 Regex 统一清理）
+                time = note.Time,
+                endTime = (note.Type == NoteType.Hold) ? note.EndTime : 0f,
                 isFake = note.IsFake
             });
         }
-        return result;
+        m_notesCacheDirty = false;
+        return m_notesCache;
     }
 
     /// <summary>
@@ -1651,6 +1668,7 @@ public class NotePlacementManager : MonoBehaviour
             }
 
             note.CachedLocalX = m_gridManager.LaneToLocalX(note.Lane);
+            m_notesCacheDirty = true;
         }
     }
 
@@ -1735,6 +1753,7 @@ public class NotePlacementManager : MonoBehaviour
         note.Time = snap.Time;
         note.EndTime = snap.EndTime;
         note.CachedLocalX = snap.CachedLocalX;
+        m_notesCacheDirty = true;
     }
 
     #endregion
@@ -1796,7 +1815,7 @@ public class NotePlacementManager : MonoBehaviour
                 data = new ChartJsonData();
             }
 
-            // 只替换 notes 字段，time 保留两位小数
+            // 只替换 notes 字段，保留原始精度（浮点噪声由 BpmManagerUI.SaveBpm 的 Regex 统一清理）
             data.notes = new List<NoteJsonNode>(m_notes.Count);
             foreach (var note in m_notes)
             {
@@ -1804,8 +1823,8 @@ public class NotePlacementManager : MonoBehaviour
                 {
                     type = note.Type.ToString(),
                     lane = note.Lane,
-                    time = Mathf.Round(note.Time * 100f) / 100f,
-                    endTime = (note.Type == NoteType.Hold) ? Mathf.Round(note.EndTime * 100f) / 100f : 0f,
+                    time = note.Time,
+                    endTime = (note.Type == NoteType.Hold) ? note.EndTime : 0f,
                     isFake = note.IsFake
                 });
             }

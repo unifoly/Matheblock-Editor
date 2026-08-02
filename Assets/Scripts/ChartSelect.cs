@@ -106,6 +106,7 @@ public class ChartSelect : MonoBehaviour
             if (!File.Exists(chartPath))
             {
                 Debug.LogWarning($"[ChartSelect] 缺少 chart.json (folder: {folderPath})");
+                Destroy(chartButton.gameObject);
                 return;
             }
 
@@ -114,6 +115,7 @@ public class ChartSelect : MonoBehaviour
             if (data?.info == null)
             {
                 Debug.LogWarning($"[ChartSelect] chart.json 格式无效 (folder: {folderPath})");
+                Destroy(chartButton.gameObject);
                 return;
             }
 
@@ -123,6 +125,7 @@ public class ChartSelect : MonoBehaviour
         catch (Exception ex)
         {
             Debug.LogWarning($"[ChartSelect] 解析谱面失败 (folder: {folderPath}): {ex.Message}");
+            Destroy(chartButton.gameObject);
             return;
         }
 
@@ -230,7 +233,18 @@ public class ChartSelect : MonoBehaviour
 
         var data = new ChartData { info = info };
         var json = JsonUtility.ToJson(data);
-        File.WriteAllText(Path.Combine(chartPath, "chart.json"), json);
+
+        // 写入 chart.json，失败时清理半成品目录，避免留下缺 JSON 的目录
+        try
+        {
+            File.WriteAllText(Path.Combine(chartPath, "chart.json"), json);
+        }
+        catch (Exception ex)
+        {
+            Debug.LogError($"[ChartSelect] 写入 chart.json 失败: {ex.Message}");
+            Directory.Delete(chartPath, true);
+            return;
+        }
 
         CloseNewChartPanel();
 

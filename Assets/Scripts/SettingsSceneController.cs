@@ -56,15 +56,16 @@ namespace HexMap
 
         private void Update()
         {
-            // 仅当 Setting 为活动场景时响应 Esc，避免 Additive 叠加在编辑器上时
-            // 拦截编辑器的 Esc 取消操作（如取消待定长条 / 关闭面板）
-            if (!gameObject.scene.isLoaded || !gameObject.scene.IsValid())
+            // Setting 场景可能以 Additive 叠加在 Splash/Editor 之上，此时它并非活动场景，
+            // 因此以「自身场景已加载」作为响应条件，保证设置页始终可用 Esc 关闭。
+            // 底层场景（编辑器/选曲）自身的 Esc 操作（取消待定长条、取消选择等）仍会执行，
+            // 但设置页覆盖其上时这些操作对用户无感，属于可接受的叠加行为。
+            if (!gameObject.scene.isLoaded)
             {
                 return;
             }
 
-            if (SceneManager.GetActiveScene().name == "Setting"
-                && Input.GetKeyDown(KeyCode.Escape))
+            if (Input.GetKeyDown(KeyCode.Escape))
             {
                 GoBack();
             }

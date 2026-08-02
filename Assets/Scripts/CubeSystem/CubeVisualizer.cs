@@ -49,7 +49,7 @@ public class CubeVisualizer : MonoBehaviour
     /// <param name="cubeId">所属方体 ID</param>
     /// <param name="layer">渲染层（CubeCamera 仅渲染此层）</param>
     /// <param name="shader">方体渲染 Shader（如为 null 将尝试 Shader.Find 加载）</param>
-    public void Initialize(int cubeId, int layer = 0, Shader shader = null)
+    public void Initialize(int cubeId, int layer = LayerConstants.Default, Shader shader = null)
     {
         CubeId = cubeId;
         m_cubeLayer = layer;

@@ -20,7 +20,7 @@ Matheblock Editor 是一款节奏游戏谱面编辑器，围绕「正方体」�
 |------|-------------|
 | Unity | 2022.3.53f1c1（Built-in Render Pipeline，旧版 Input Manager） |
 | 脚本语言 | C# |
-| UI 框架 | UI Toolkit（设置场景）+ uGUI / TextMesh Pro（编辑器场景） |
+| UI 框架 | uGUI / TextMesh Pro（所有场景，编辑器 UI 运行时程序化构建） |
 | 动画引擎 | DOTween 1.2.x（`DOVirtual.EasedValue` 插值） |
 | 文件对话框 | StandaloneFileBrowser |
 | 命名空间 | `HexMap`（设置/键位相关）+ 全局命名空间（编辑器脚本） |
@@ -200,7 +200,6 @@ result    = Lerp(curr.value, next.value, weightedT)
 | P2 | `ChartJsonData` 统一数据模型 | notes/bpmNodes/cubes 分散读写，可收敛为单一模型类 |
 | 建议 | 竖线绘制池化 | 垂直线仍为 `DestroyImmediate + new GameObject`，高频滚动时可有 GC 压力（`m_followPlayback` 已缓解） |
 | 建议 | UI 构建抽公共基类 | `CreateUIObject`/`CreateText`/`PositionElement` 在 5+ 个 UI 管理类中重复，可提炼 `UiFactory` 工具类 |
-| 建议 | 设置场景迁移 UI Toolkit | 项目已用 UI Toolkit，编辑器场景 uGUI 为历史遗留 |
 
 ## 8. 附录：Layer 与关键常量约定
 

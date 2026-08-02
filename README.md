@@ -2,13 +2,15 @@
 
 基于 Unity 的节奏游戏谱面编辑器，支持变 BPM、六边形网格与完整的设置系统。
 
+> 当前版本：**0.1.0a**
+
 ## 技术栈
 
 | 项目 | 版本 / 说明 |
 |------|-------------|
 | Unity | 2022.3.53f1c1 |
 | 脚本语言 | C# |
-| UI 框架 | UI Toolkit + uGUI (TextMesh Pro) |
+| UI 框架 | uGUI (TextMesh Pro)（所有场景） |
 | 渲染管线 | Built-in Render Pipeline |
 | 动画引擎 | DOTween 1.2.x |
 | 命名空间 | `HexMap` |
@@ -158,7 +160,7 @@ return Mathf.Lerp(curr.value, next.value, weightedT);
 | 模块 | 功能 |
 |------|------|
 | `SettingsMenuController` | 左右分栏菜单，滑块/开关/下拉框自动绑定 |
-| `SettingsDataManager` | JSON 文件持久化（音量、全屏、画质），自动从 PlayerPrefs 迁移 |
+| `SettingsDataManager` | JSON 文件持久化（音量、分辨率、自动保存），自动从 PlayerPrefs 迁移 |
 | `KeyBindingsStore` | 快捷键绑定存储，JSON 持久化，支持组合键（`KeyCombo`） |
 | `RebindButton` | 点击 5 秒内捕获按键（支持 Ctrl/Shift/Alt 组合），启动时自动加载已保存绑定 |
 | `EditorOpenSettings` | 编辑器内以 Additive 模式叠加设置场景 |
@@ -169,7 +171,7 @@ return Mathf.Lerp(curr.value, next.value, weightedT);
 
 | 文件 | 内容 |
 |------|------|
-| `Settings.json` | 音量、画质、全屏等设置 |
+| `Settings.json` | 音量、分辨率、自动保存等设置 |
 | `KeyBindings.json` | 快捷键绑定（含组合键） |
 
 首次运行时自动从旧版 PlayerPrefs 数据迁移。
@@ -181,11 +183,12 @@ return Mathf.Lerp(curr.value, next.value, weightedT);
     "masterVolume": 1.0,
     "musicVolume": 0.8,
     "sfxVolume": 1.0,
-    "isFullscreen": true,
-    "qualityLevel": 2,
-    "resolutionIndex": 0
+    "resolutionIndex": 0,
+    "autoSaveMinutes": 10
 }
 ```
+
+> 画质固定为中档（Medium），不提供用户配置项。
 
 **KeyBindings.json 格式：**
 

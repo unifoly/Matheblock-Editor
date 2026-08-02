@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Globalization;
 using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
@@ -502,7 +503,7 @@ public class AnchorPointEditorUI : MonoBehaviour
 
         // 权重：SetValueWithoutNotify 避免打开面板时触发 OnWeightChanged 写盘
         m_weightSlider.SetValueWithoutNotify(bar.weight);
-        m_weightValueLabel.text = bar.weight.ToString("F2");
+        m_weightValueLabel.text = bar.weight.ToString("F2", CultureInfo.InvariantCulture);
 
         // 全局模式：显示方体/轨道变更区域
         UpdateGlobalSection();
@@ -534,8 +535,10 @@ public class AnchorPointEditorUI : MonoBehaviour
 
         if (isTrackLevel)
         {
-            m_faceDropdown.value = (int)m_easingAreaManager.GetSelectedGlobalEventFace();
-            m_directionDropdown.value = (int)m_easingAreaManager.GetSelectedGlobalEventDirection();
+            // SetValueWithoutNotify：仅同步 UI 显示，避免触发 OnFaceChanged/OnDirectionChanged 回调
+            // （回调会走 ChangeSelectedGlobalEventTrack，与当前选择相同值时应保持静默）
+            m_faceDropdown.SetValueWithoutNotify((int)m_easingAreaManager.GetSelectedGlobalEventFace());
+            m_directionDropdown.SetValueWithoutNotify((int)m_easingAreaManager.GetSelectedGlobalEventDirection());
         }
     }
 
@@ -777,7 +780,7 @@ public class AnchorPointEditorUI : MonoBehaviour
     {
         if (m_easingAreaManager == null || !m_easingAreaManager.HasSelection) return;
 
-        m_weightValueLabel.text = value.ToString("F2");
+        m_weightValueLabel.text = value.ToString("F2", CultureInfo.InvariantCulture);
         m_easingAreaManager.UpdateSelectedBarWeight(value);
         RefreshCurvePreview();
     }

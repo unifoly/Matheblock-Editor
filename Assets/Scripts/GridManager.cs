@@ -429,12 +429,6 @@ public class GridManager : MonoBehaviour
         // 从第一个可见范围内的 beat 开始绘制
         int poolIndex = 0;
 
-        // 调试：记录可见线中第一条和最后一条 BPM，以及BPM发生变化的位置
-        float firstBpm = 0f;
-        float lastBpm = 0f;
-        int bpmChangeCount = 0;
-        float prevDrawnBpm = -1f;
-
         while (time <= visibleTimeMax + 0.001f && time < (float)m_totalMusicTime)
         {
             float bpm = BpmManagerUI.GetBpmAtTime(time);
@@ -459,13 +453,6 @@ public class GridManager : MonoBehaviour
                 image.color = isWholeNote ? m_beatLineColor : m_gridColor;
                 // 水平线纯视觉用途，不拦截射线
                 image.raycastTarget = false;
-
-                // 追踪 BPM 变化
-                if (poolIndex == 1) firstBpm = bpm;
-                lastBpm = bpm;
-                if (prevDrawnBpm > 0 && Mathf.Abs(bpm - prevDrawnBpm) > 0.1f)
-                    bpmChangeCount++;
-                prevDrawnBpm = bpm;
             }
 
             time += intervalFactor / bpm;
@@ -480,10 +467,6 @@ public class GridManager : MonoBehaviour
         {
             m_hLinePool[i].SetActive(false);
         }
-
-        // 调试输出（功能已完善，注释掉）
-        // Debug.Log($"[GridManager] curTime={currentTime:F2}s visTime=[{visibleTimeMin:F1}, {visibleTimeMax:F1}] " +
-        //     $"beats={poolIndex} BPM:first={firstBpm:F0} last={lastBpm:F0} changes={bpmChangeCount}");
     }
 
     /// <summary>

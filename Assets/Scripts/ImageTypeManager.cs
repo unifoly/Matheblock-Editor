@@ -19,10 +19,18 @@ public class ImageTypeManager
 
     public Texture2D GetTextureByString(string textureStr)
     {
+        // 空数据直接返回，避免 FromBase64String 抛 ArgumentNullException
+        if (string.IsNullOrEmpty(textureStr))
+        {
+            Debug.LogWarning("[ImageTypeManager] 图像数据为空，返回 null");
+            return null;
+        }
+
         try
         {
-            var tex = new Texture2D(1, 1);
+            // 先解码再创建纹理：FormatException 分支不会泄漏已创建的纹理
             var arr = Convert.FromBase64String(textureStr);
+            var tex = new Texture2D(1, 1);
             if (tex.LoadImage(arr))
             {
                 tex.Apply();

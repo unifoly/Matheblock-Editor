@@ -3,6 +3,9 @@
 /// </summary>
 public static class LayerConstants
 {
+    /// <summary>默认 Layer（编号 0）：普通游戏对象 / 粒子特效等默认渲染层</summary>
+    public const int Default = 0;
+
     /// <summary>UI Layer：编辑器场景内所有 UI 元素专用层（默认编号 5）</summary>
     public const int Ui = 5;
 

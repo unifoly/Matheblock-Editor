@@ -273,6 +273,14 @@ namespace RuntimePlayback
                 return;
             }
 
+            // 未分配音频时禁止进入播放态，否则结束检测因 clip==null 恒短路导致无法退出放映
+            if (m_audioSource.clip == null)
+            {
+                Debug.LogWarning($"[{GetType().Name}] 未分配音频文件，无法播放");
+                m_isPlaying = false;
+                return;
+            }
+
             m_audioSource.Stop();
             // 音频起始位置 = 谱面起始 - offset（钳制不小于 0）
             m_audioSource.time = Mathf.Max(0f, startTime - m_offsetSeconds);

@@ -47,10 +47,6 @@ public class EasingAreaManager : MonoBehaviour
     [SerializeField] private Color m_lineColor = new Color(0.5f, 0.7f, 1f, 0.6f);
     [Tooltip("缓动区背景色")]
     [SerializeField] private Color m_backgroundColor = new Color(0.12f, 0.12f, 0.16f, 0.5f);
-    [Tooltip("水平参考线颜色")]
-    [SerializeField] private Color m_hLineColor = new Color(1f, 1f, 1f, 0.15f);
-    [Tooltip("水平参考线数量")]
-    [SerializeField] private int m_hLineCount = 8;
 
     [Header("标签设置")]
     [Tooltip("标签字体大小")]

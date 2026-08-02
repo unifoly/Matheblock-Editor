@@ -9,18 +9,26 @@ public class EventSystemDebug : MonoBehaviour
 {
     private void Start()
     {
+#if UNITY_EDITOR
         var es = EventSystem.current;
         if (es == null)
+        {
             Debug.LogError("[EventSystemDebug] EventSystem.current is NULL!");
+        }
         else
+        {
             Debug.Log($"[EventSystemDebug] EventSystem OK, enabled={es.enabled}, module={es.currentInputModule?.GetType().Name}");
+        }
+#endif
     }
 
     private void Update()
     {
 #if UNITY_EDITOR
         if (Input.GetMouseButtonDown(0))
+        {
             Debug.Log("[EventSystemDebug] Mouse click detected!");
+        }
 #endif
     }
 }

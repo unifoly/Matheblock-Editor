@@ -16,6 +16,9 @@ public class PlaybackModeController : MonoBehaviour
     // 下落预览时间窗口（秒）：Note 在到达 hit time 前 k_lookAhead 秒开始下落
     private const float k_lookAhead = 3f;
 
+    // 流速默认值（与 EasingSlotConfigs 流速槽 defaultValue=30 一致，等价 1x 速度）
+    private const float k_defaultFlowSpeed = 30f;
+
     // 网格淡入淡出时长
     private const float k_fadeDuration = 0.4f;
 
@@ -527,7 +530,13 @@ public class PlaybackModeController : MonoBehaviour
 
         // 流速影响有效预览窗口：流速越高，Note 下落越快，窗口越短（默认流速 30 时等于 k_lookAhead）
         float flowSpeed = GetFlowSpeed(currentTime);
-        float effectiveLookAhead = k_lookAhead * 30f / Mathf.Max(0.1f, flowSpeed);
+        // 非正流速（缓动锚点被编辑为负值/0）会导致预览窗口长达数百秒、Note 堆积，回退默认流速
+        if (flowSpeed <= 0f)
+        {
+            flowSpeed = k_defaultFlowSpeed;
+        }
+
+        float effectiveLookAhead = k_lookAhead * k_defaultFlowSpeed / flowSpeed;
 
         // 生成即将到达的 Note
         foreach (var note in currentNotes)

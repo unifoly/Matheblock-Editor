@@ -12,6 +12,12 @@ namespace HexMap
     {
         private const string k_fileName = "Settings.json";
 
+        // 画质默认等级：高（对应 QualitySettings 中的 High）
+        private const string k_defaultQualityName = "High";
+
+        // 画质字段在 Settings.json 中的键名，用于区分旧存档（无画质字段时保持默认）
+        private const string k_qualityFieldName = "qualityLevel";
+
         private static string s_filePath;
 
         // 序列化用数据类
@@ -21,16 +27,20 @@ namespace HexMap
             public float masterVolume = 1f;
             public float musicVolume = 1f;
             public float sfxVolume = 1f;
-            public int qualityLevel = 2;
             public int resolutionIndex = 0;
             public int autoSaveMinutes = 10;
+            public int qualityLevel = 3; // 默认高画质（QualitySettings 索引，索引 3 = High）
         }
 
         public static float MasterVolume { get; set; } = 1f;
         public static float MusicVolume { get; set; } = 1f;
         public static float SFXVolume { get; set; } = 1f;
-        public static int QualityLevel { get; set; } = 2;
         public static int ResolutionIndex { get; set; } = 0;
+
+        /// <summary>
+        /// 画质等级索引（对应 QualitySettings.names），默认高画质
+        /// </summary>
+        public static int QualityLevel { get; set; } = FindQualityIndex(k_defaultQualityName);
 
         /// <summary>
         /// 自动保存间隔（分钟），0 表示关闭自动保存
@@ -95,12 +105,17 @@ namespace HexMap
 
                 if (data != null)
                 {
-                    MasterVolume = data.masterVolume;
-                    MusicVolume = data.musicVolume;
-                    SFXVolume = data.sfxVolume;
-                    QualityLevel = data.qualityLevel;
-                    ResolutionIndex = data.resolutionIndex;
-                    AutoSaveMinutes = data.autoSaveMinutes;
+                    // 加载值范围校验：防止手改 JSON 写入越界值导致音量/分辨率异常
+                    MasterVolume = Mathf.Clamp01(data.masterVolume);
+                    MusicVolume = Mathf.Clamp01(data.musicVolume);
+                    SFXVolume = Mathf.Clamp01(data.sfxVolume);
+                    ResolutionIndex = Mathf.Clamp(data.resolutionIndex, 0, Mathf.Max(0, Screen.resolutions.Length - 1));
+                    AutoSaveMinutes = Mathf.Max(0, data.autoSaveMinutes);
+
+                    // 旧存档没有画质字段时保持默认（高画质），避免 JsonUtility 缺失字段回退为 0（极低画质）
+                    QualityLevel = json.Contains(k_qualityFieldName)
+                        ? Mathf.Clamp(data.qualityLevel, 0, Mathf.Max(0, QualitySettings.names.Length - 1))
+                        : FindQualityIndex(k_defaultQualityName);
                 }
             }
             catch (Exception ex)
@@ -125,7 +140,6 @@ namespace HexMap
             MasterVolume = PlayerPrefs.GetFloat("Settings_MasterVolume", 1f);
             MusicVolume = PlayerPrefs.GetFloat("Settings_MusicVolume", 1f);
             SFXVolume = PlayerPrefs.GetFloat("Settings_SFXVolume", 1f);
-            QualityLevel = PlayerPrefs.GetInt("Settings_QualityLevel", 2);
             ResolutionIndex = PlayerPrefs.GetInt("Settings_ResolutionIndex", 0);
 
             // 保存到 JSON 文件
@@ -135,7 +149,6 @@ namespace HexMap
             PlayerPrefs.DeleteKey("Settings_MasterVolume");
             PlayerPrefs.DeleteKey("Settings_MusicVolume");
             PlayerPrefs.DeleteKey("Settings_SFXVolume");
-            PlayerPrefs.DeleteKey("Settings_QualityLevel");
             PlayerPrefs.DeleteKey("Settings_ResolutionIndex");
             PlayerPrefs.Save();
 
@@ -149,9 +162,9 @@ namespace HexMap
                 masterVolume = MasterVolume,
                 musicVolume = MusicVolume,
                 sfxVolume = SFXVolume,
-                qualityLevel = QualityLevel,
                 resolutionIndex = ResolutionIndex,
-                autoSaveMinutes = AutoSaveMinutes
+                autoSaveMinutes = AutoSaveMinutes,
+                qualityLevel = QualityLevel
             };
 
             try
@@ -168,7 +181,25 @@ namespace HexMap
         public static void ApplySettings()
         {
             AudioListener.volume = MasterVolume;
+
             QualitySettings.SetQualityLevel(QualityLevel, true);
+        }
+
+        /// <summary>
+        /// 查找指定名称的画质等级索引；未找到时回退为中档（索引 2）
+        /// </summary>
+        private static int FindQualityIndex(string name)
+        {
+            string[] names = QualitySettings.names;
+            for (int i = 0; i < names.Length; i++)
+            {
+                if (names[i] == name)
+                {
+                    return i;
+                }
+            }
+
+            return 2;
         }
 
         public static void ResetAll()
@@ -176,9 +207,9 @@ namespace HexMap
             MasterVolume = 1f;
             MusicVolume = 1f;
             SFXVolume = 1f;
-            QualityLevel = 2;
             ResolutionIndex = 0;
             AutoSaveMinutes = 10;
+            QualityLevel = FindQualityIndex(k_defaultQualityName);
             Save();
         }
     }

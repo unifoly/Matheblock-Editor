@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Text.RegularExpressions;
 using TMPro;
@@ -560,7 +561,7 @@ public class BpmManagerUI : MonoBehaviour
             return false;
         }
 
-        entry.TimeInput.text = adjustedTime.ToString("F2");
+        entry.TimeInput.text = adjustedTime.ToString("F2", CultureInfo.InvariantCulture);
         return true;
     }
 
@@ -714,7 +715,7 @@ public class BpmManagerUI : MonoBehaviour
         }
 
         // 设置默认值
-        entry.TimeInput.text = isFirstNode ? "0" : defaultTime.ToString("F2");
+        entry.TimeInput.text = isFirstNode ? "0" : defaultTime.ToString("F2", CultureInfo.InvariantCulture);
 
         // BPM：若未指定则继承上一个节点的 BPM，无上一节点时默认 120
         if (defaultBpm < 0)
@@ -730,7 +731,7 @@ public class BpmManagerUI : MonoBehaviour
         }
         else
         {
-            entry.BpmInput.text = defaultBpm.ToString("F0");
+            entry.BpmInput.text = defaultBpm.ToString("F0", CultureInfo.InvariantCulture);
         }
 
         // 约束输入类型
@@ -799,7 +800,7 @@ public class BpmManagerUI : MonoBehaviour
                 revertTime = prevTime;
             }
 
-            entry.TimeInput.text = revertTime.ToString("F2");
+            entry.TimeInput.text = revertTime.ToString("F2", CultureInfo.InvariantCulture);
             ShowWarningPopup(error);
             return;
         }
@@ -1015,8 +1016,9 @@ public class BpmManagerUI : MonoBehaviour
                 {
                     data.bpmNodes.Add(new BpmJsonNode
                     {
-                        time = MathF.Round(time, 2),
-                        bpm = MathF.Round(bpm, 2)
+                        // 保留解析原值，不再 2 位截断（浮点噪声由下方 Regex 统一清理）
+                        time = time,
+                        bpm = bpm
                     });
                 }
                 else
@@ -1029,7 +1031,8 @@ public class BpmManagerUI : MonoBehaviour
             // 消除 IEEE 754 二进制近似噪声（如 0.01f → 0.009999999...）。
             // 用不区分区域设置的解析 + 保留 6 位小数：既清理浮点噪声，又不破坏
             // notes/cubes 中真实的 3~6 位精度数据（旧的 2 位四舍五入会静默改动谱面）。
-            jsonStr = Regex.Replace(jsonStr, @"\d+\.\d{3,}",
+            // 负向后顾 (?<!") 排除引号内文本（如谱面名 "v1.234567"），只处理 JSON 数字键值。
+            jsonStr = Regex.Replace(jsonStr, @"(?<!"")\d+\.\d{3,}",
                 m => Math.Round(double.Parse(m.Value, System.Globalization.CultureInfo.InvariantCulture), 6)
                     .ToString("0.######", System.Globalization.CultureInfo.InvariantCulture));
             Debug.Log($"[{GetType().Name}] SaveBpm → .tmp: nodes={data.bpmNodes.Count}");
@@ -1114,8 +1117,8 @@ public class BpmManagerUI : MonoBehaviour
         {
             AddNode(nodes[i].time, nodes[i].bpm, isFirstNode: i == 0);
             // 覆盖文本以确保精确还原快照值
-            m_nodeEntries[i].TimeInput.text = nodes[i].time.ToString("F2");
-            m_nodeEntries[i].BpmInput.text = nodes[i].bpm.ToString("F2");
+            m_nodeEntries[i].TimeInput.text = nodes[i].time.ToString("F2", CultureInfo.InvariantCulture);
+            m_nodeEntries[i].BpmInput.text = nodes[i].bpm.ToString("F2", CultureInfo.InvariantCulture);
         }
 
         SaveBpmNodesToJson();

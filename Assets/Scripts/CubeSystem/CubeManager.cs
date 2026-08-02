@@ -116,12 +116,24 @@ public class CubeManager : MonoBehaviour
 
     private void OnDestroy()
     {
-        // 释放 RenderTexture，避免重复初始化（AddComponent/重载）时泄漏
+        // 释放 RenderTexture 与显示节点，避免重复初始化（AddComponent/重载）时泄漏
         if (m_cubeRenderTexture != null)
         {
             m_cubeRenderTexture.Release();
             Destroy(m_cubeRenderTexture);
             m_cubeRenderTexture = null;
+        }
+
+        if (m_cubeCamera != null)
+        {
+            Destroy(m_cubeCamera.gameObject);
+            m_cubeCamera = null;
+        }
+
+        if (m_cubeDisplay != null)
+        {
+            Destroy(m_cubeDisplay.gameObject);
+            m_cubeDisplay = null;
         }
     }
 
@@ -363,7 +375,8 @@ public class CubeManager : MonoBehaviour
     }
 
     /// <summary>
-    /// 切换放映模式相机：居中方体正面，收紧视野
+    /// 切换放映模式相机：居中方体正面（编辑/放映参数当前一致，统一使用常量；
+    /// 后续如需放映时收紧视野，仅需调整此处即可）
     /// </summary>
     public void SetPlaybackCameraMode(bool enabled)
     {
@@ -373,19 +386,8 @@ public class CubeManager : MonoBehaviour
         if (cube == null) return;
 
         float cubeX = cube.cubeId * m_cubeSpacing;
-
-        if (enabled)
-        {
-            // 居中方体，收紧视野以充满画面
-            m_cubeCamera.transform.position = new Vector3(cubeX, 0, 0);
-            m_cubeCamera.orthographicSize = 0.8f;
-        }
-        else
-        {
-            // 恢复编辑模式：方体顶棱对齐标定线
-            m_cubeCamera.transform.position = new Vector3(cubeX, k_cameraYOffset, 0);
-            m_cubeCamera.orthographicSize = k_cameraOrthoSize;
-        }
+        m_cubeCamera.transform.position = new Vector3(cubeX, k_cameraYOffset, 0);
+        m_cubeCamera.orthographicSize = k_cameraOrthoSize;
     }
 
     // ---- JSON 持久化 ----

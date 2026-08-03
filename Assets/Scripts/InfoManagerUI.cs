@@ -514,24 +514,34 @@ public class InfoManagerUI : MonoBehaviour
         var blurMat = new Material(blurShader);
         blurMat.SetFloat("_BlurSize", 2.0f);
 
+        // 在 Blit 之前记录原 active：URP 下 Graphics.Blit 不会恢复 RenderTexture.active，
+        // 若在 Blit 之后才记录，捕获到的 prevActive 会是 rt2，导致释放临时纹理时触发
+        // "Releasing render texture that is set to be RenderTexture.active!" 警告
+        var prevActive = RenderTexture.active;
+
         var rt1 = RenderTexture.GetTemporary(source.width, source.height, 0);
         var rt2 = RenderTexture.GetTemporary(source.width, source.height, 0);
 
-        Graphics.Blit(source, rt1, blurMat, 0);
-        Graphics.Blit(rt1, rt2, blurMat, 1);
+        try
+        {
+            Graphics.Blit(source, rt1, blurMat, 0);
+            Graphics.Blit(rt1, rt2, blurMat, 1);
 
-        var prevActive = RenderTexture.active;
-        RenderTexture.active = rt2;
-        var blurred = new Texture2D(source.width, source.height, TextureFormat.RGBA32, false);
-        blurred.ReadPixels(new Rect(0, 0, source.width, source.height), 0, 0);
-        blurred.Apply();
-        RenderTexture.active = prevActive;
+            RenderTexture.active = rt2;
+            var blurred = new Texture2D(source.width, source.height, TextureFormat.RGBA32, false);
+            blurred.ReadPixels(new Rect(0, 0, source.width, source.height), 0, 0);
+            blurred.Apply();
 
-        RenderTexture.ReleaseTemporary(rt1);
-        RenderTexture.ReleaseTemporary(rt2);
-        Destroy(blurMat);
-
-        return blurred;
+            return blurred;
+        }
+        finally
+        {
+            // 无论读回是否成功，都恢复原 active 并释放临时纹理，避免 active 残留
+            RenderTexture.active = prevActive;
+            RenderTexture.ReleaseTemporary(rt1);
+            RenderTexture.ReleaseTemporary(rt2);
+            Destroy(blurMat);
+        }
     }
 
     #endregion

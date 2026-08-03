@@ -116,22 +116,31 @@ public class CubeManager : MonoBehaviour
 
     private void OnDestroy()
     {
+        // 先解除 CubeCamera 对 RenderTexture 的绑定，避免释放仍被相机绑定为渲染目标的纹理时
+        // 触发 "Releasing render texture that is set to be RenderTexture.active!" 警告
+        if (m_cubeCamera != null)
+        {
+            m_cubeCamera.targetTexture = null;
+            Destroy(m_cubeCamera.gameObject);
+            m_cubeCamera = null;
+        }
+
         // 释放 RenderTexture 与显示节点，避免重复初始化（AddComponent/重载）时泄漏
         if (m_cubeRenderTexture != null)
         {
+            if (RenderTexture.active == m_cubeRenderTexture)
+            {
+                RenderTexture.active = null;
+            }
+
             m_cubeRenderTexture.Release();
             Destroy(m_cubeRenderTexture);
             m_cubeRenderTexture = null;
         }
 
-        if (m_cubeCamera != null)
-        {
-            Destroy(m_cubeCamera.gameObject);
-            m_cubeCamera = null;
-        }
-
         if (m_cubeDisplay != null)
         {
+            m_cubeDisplay.texture = null;
             Destroy(m_cubeDisplay.gameObject);
             m_cubeDisplay = null;
         }

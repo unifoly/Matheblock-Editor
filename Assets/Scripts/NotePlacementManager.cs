@@ -279,7 +279,6 @@ public class NotePlacementManager : MonoBehaviour
         }
         else
         {
-            Debug.LogWarning($"[NotePlacementManager] 无法解析快捷键: {combo.ToDisplayString()} (action={actionName})，使用默认 {defaultKey}");
             m_hotkeyList.Add((defaultCombo, type));
         }
     }
@@ -595,7 +594,6 @@ public class NotePlacementManager : MonoBehaviour
         if (m_fakeToggleCombo.IsPressed())
         {
             m_fakeModeActive = !m_fakeModeActive;
-            Debug.Log($"[NotePlacementManager] Fake Note 放置已{(m_fakeModeActive ? "开启" : "关闭")}（Tab 切换）");
         }
     }
 
@@ -635,7 +633,6 @@ public class NotePlacementManager : MonoBehaviour
                 m_gridManager.LaneToLocalX(lane),
                 m_gridManager.TimeToLocalY(time),
                 0);
-            Debug.Log($"[NotePlacementManager] Hold 头部待确认: lane={lane} time={time:F2}s，按 W 确认尾点，Esc 取消");
         }
         else
         {
@@ -654,7 +651,6 @@ public class NotePlacementManager : MonoBehaviour
                     m_gridManager.LaneToLocalX(lane),
                     m_gridManager.TimeToLocalY(time),
                     0);
-                Debug.Log($"[NotePlacementManager] Hold 切换到新列: lane={lane} time={time:F2}s");
                 return;
             }
 
@@ -669,14 +665,12 @@ public class NotePlacementManager : MonoBehaviour
             // 起止点相同：取消
             if (Mathf.Approximately(startTime, endTime))
             {
-                Debug.Log("[NotePlacementManager] Hold 起止点相同，取消放置");
                 return;
             }
 
             // 去重检查
             if (HasNoteAt(lane, startTime))
             {
-                Debug.Log($"[NotePlacementManager] 格点已存在 Note: lane={lane} time={startTime:F2}s，跳过");
                 return;
             }
 
@@ -706,8 +700,6 @@ public class NotePlacementManager : MonoBehaviour
         UndoRedoManager.Execute(
             undo: () => { RemoveHoldAt(lane, startTime); SaveNotesToJson(); },
             redo: () => { CreateHoldView(lane, startTime, endTime, isFake); SaveNotesToJson(); });
-
-        Debug.Log($"[NotePlacementManager] 放置 {(isFake ? "Fake " : "")}Hold: lane={lane} time={startTime:F2}s~{endTime:F2}s");
     }
 
     /// <summary>
@@ -739,7 +731,6 @@ public class NotePlacementManager : MonoBehaviour
         // 同格点去重：已有 Note 则跳过
         if (HasNoteAt(lane, time))
         {
-            Debug.Log($"[NotePlacementManager] 格点已存在 Note: lane={lane} time={time:F2}s，跳过放置");
             return;
         }
 
@@ -750,8 +741,6 @@ public class NotePlacementManager : MonoBehaviour
         UndoRedoManager.Execute(
             undo: () => { RemoveNoteAt(lane, time); SaveNotesToJson(); },
             redo: () => { CreateNoteView(type, lane, time, isFake); SaveNotesToJson(); });
-
-        Debug.Log($"[NotePlacementManager] 放置 {(isFake ? "Fake " : "")}{type} Note: lane={lane} time={time:F2}s");
     }
 
     /// <summary>
@@ -994,7 +983,6 @@ public class NotePlacementManager : MonoBehaviour
             // 取消 Hold 等待状态（避免删除后仍显示临时头部）
             if (m_holdPending) CancelHoldPending();
 
-            Debug.Log($"[NotePlacementManager] 删除 {type} Note: lane={lane} time={time:F2}s");
             return;
         }
     }
@@ -1645,8 +1633,6 @@ public class NotePlacementManager : MonoBehaviour
                 SaveNotesToJson();
                 m_playbackController?.ClearPlaybackNotes();
             });
-
-        Debug.Log($"[NotePlacementManager] 批量删除 {captured.Count} 个 Note");
     }
 
     // ---- 集体移动 ----
@@ -1792,8 +1778,6 @@ public class NotePlacementManager : MonoBehaviour
                 m_playbackController?.ClearPlaybackNotes();
             });
 
-        Debug.Log($"[NotePlacementManager] 集体移动 {before.Count} 个 Note");
-
         m_moveBefore.Clear();
         m_moveAfter.Clear();
     }
@@ -1885,24 +1869,9 @@ public class NotePlacementManager : MonoBehaviour
 
             var jsonStr = JsonUtility.ToJson(data);
             File.WriteAllText(tmpPath, jsonStr);
-
-            // 诊断日志：验证 cubes 字段是否被保留
-            int cubeCount = data.cubes?.Count ?? 0;
-            int totalAnchors = 0;
-            if (data.cubes != null)
-            {
-                foreach (var cube in data.cubes)
-                {
-                    if (cube.easingSlots != null)
-                        foreach (var slot in cube.easingSlots)
-                            totalAnchors += slot?.bars?.Count ?? 0;
-                }
-            }
-            Debug.Log($"[{GetType().Name}] 保存 Note: notes={data.notes?.Count ?? 0}, cubes={cubeCount}, bars={totalAnchors}");
         }
         catch (Exception ex)
         {
-            Debug.LogError($"[{GetType().Name}] 保存 Note 失败: {ex.Message}");
         }
     }
 
@@ -1926,7 +1895,6 @@ public class NotePlacementManager : MonoBehaviour
                 // 解析 Note 类型字符串
                 if (!Enum.TryParse<NoteType>(node.type, out NoteType type))
                 {
-                    Debug.LogWarning($"[{GetType().Name}] 未知 Note 类型: {node.type}，跳过");
                     continue;
                 }
 
@@ -1939,12 +1907,9 @@ public class NotePlacementManager : MonoBehaviour
                     CreateNoteView(type, node.lane, node.time, node.isFake);
                 }
             }
-
-            Debug.Log($"[{GetType().Name}] 从 chart.tmp 加载 {m_notes.Count} 个 Note");
         }
         catch (Exception ex)
         {
-            Debug.LogError($"[{GetType().Name}] 加载 Note 失败: {ex.Message}");
         }
     }
 

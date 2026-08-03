@@ -23,7 +23,6 @@ namespace HexMap
         {
             if (!Application.isPlaying)
             {
-                Debug.LogWarning("[SettingsEditorBridge] 请在 Play Mode 中使用此功能。");
                 return;
             }
 

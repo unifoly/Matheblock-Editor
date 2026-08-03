@@ -50,11 +50,6 @@ public class GridScrollHandler : MonoBehaviour, IScrollHandler, IEventSystemHand
                 m_gridManager = playScreen.GetComponent<GridManager>();
             }
         }
-
-        if (m_gridManager == null)
-        {
-            Debug.LogError("GridScrollHandler: GridManager not found!");
-        }
     }
 
     private void Update()

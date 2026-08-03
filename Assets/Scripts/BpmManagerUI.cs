@@ -111,11 +111,9 @@ public class BpmManagerUI : MonoBehaviour
                 return;
 
             PopulateCacheFromNodes(data.bpmNodes);
-            Debug.Log($"[BpmManagerUI] 启动时自动加载 {s_cachedBpmNodes.Count} 个 BPM 节点到缓存");
         }
         catch (Exception ex)
         {
-            Debug.LogError($"[BpmManagerUI] 加载BPM缓存失败: {ex.Message}");
         }
     }
 
@@ -185,11 +183,6 @@ public class BpmManagerUI : MonoBehaviour
         if (saveObj != null)
         {
             m_saveButton = saveObj.GetComponent<Button>();
-            Debug.Log($"[{GetType().Name}] Save 按钮绑定成功: {saveObj.name}");
-        }
-        else
-        {
-            Debug.LogError($"[{GetType().Name}] 未找到 Save 按钮！请确认场景中存在名为 Save 的 GameObject");
         }
     }
 
@@ -275,8 +268,6 @@ public class BpmManagerUI : MonoBehaviour
     /// </summary>
     private void HandleSaveButtonClicked()
     {
-        Debug.Log($"[{GetType().Name}] Save 点击: entries={m_nodeEntries.Count}, panelActive={(m_bpmPanel != null && m_bpmPanel.activeSelf)}");
-
         // 确保所有数据（含方体/锚点）持久化到 chart.json
         EditorInit.PersistToChartJson();
     }
@@ -482,8 +473,6 @@ public class BpmManagerUI : MonoBehaviour
     /// </summary>
     private void HandleAddNodeClicked()
     {
-        Debug.Log($"[BpmManagerUI] 添加节点按钮被点击");
-
         var beforeSnapshot = CaptureBpmNodes();
 
         var currentTime = GetCurrentMusicTime();
@@ -978,7 +967,6 @@ public class BpmManagerUI : MonoBehaviour
         }
         catch (Exception ex)
         {
-            Debug.LogError($"[{GetType().Name}] 加载BPM节点失败: {ex.Message}");
         }
     }
 
@@ -1021,10 +1009,6 @@ public class BpmManagerUI : MonoBehaviour
                         bpm = bpm
                     });
                 }
-                else
-                {
-                    Debug.LogWarning($"[{GetType().Name}] 跳过无效节点: time={entry.TimeInput?.text}, bpm={entry.BpmInput?.text}");
-                }
             }
 
             var jsonStr = JsonUtility.ToJson(data);
@@ -1035,7 +1019,6 @@ public class BpmManagerUI : MonoBehaviour
             jsonStr = Regex.Replace(jsonStr, @"(?<!"")\d+\.\d{3,}",
                 m => Math.Round(double.Parse(m.Value, System.Globalization.CultureInfo.InvariantCulture), 6)
                     .ToString("0.######", System.Globalization.CultureInfo.InvariantCulture));
-            Debug.Log($"[{GetType().Name}] SaveBpm → .tmp: nodes={data.bpmNodes.Count}");
             File.WriteAllText(tmpPath, jsonStr);
 
             // 更新静态缓存，供 GridManager 查询
@@ -1044,7 +1027,6 @@ public class BpmManagerUI : MonoBehaviour
         }
         catch (Exception ex)
         {
-            Debug.LogError($"[{GetType().Name}] 保存BPM节点失败: {ex.Message}");
         }
     }
 
@@ -1161,14 +1143,12 @@ public class BpmManagerUI : MonoBehaviour
         var sourceFont = Resources.Load<Font>("Fonts/black");
         if (sourceFont == null)
         {
-            Debug.LogWarning($"[{GetType().Name}] 未找到 Fonts/black 字体，使用 TMP 默认字体");
             return null;
         }
 
         m_chineseFont = TMP_FontAsset.CreateFontAsset(sourceFont);
         if (m_chineseFont == null)
         {
-            Debug.LogWarning($"[{GetType().Name}] 创建动态 TMP 字体失败，使用 TMP 默认字体");
         }
         else
         {

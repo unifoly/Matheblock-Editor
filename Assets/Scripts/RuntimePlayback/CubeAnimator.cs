@@ -56,10 +56,6 @@ namespace RuntimePlayback
             }
 
             m_initialized = true;
-
-            Debug.Log($"[{GetType().Name}] Initialize cubeId={data.cubeId}, " +
-                      $"easingSlots={data.easingSlots?.Count ?? 0}, " +
-                      $"baseScale={m_baseScale}, basePos={m_basePosition}");
         }
 
         /// <summary>

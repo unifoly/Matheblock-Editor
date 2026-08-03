@@ -111,7 +111,6 @@ public class EditorInit : MonoBehaviour
         var playScreen = GameObject.Find("PlayScreen");
         if (playScreen == null)
         {
-            Debug.LogError("PlayScreen not found in the scene!");
             return;
         }
 
@@ -158,7 +157,6 @@ public class EditorInit : MonoBehaviour
         // 谱面路径为空时直接跳过，避免在当前工作目录误生成 chart 文件
         if (string.IsNullOrEmpty(m_infoDir))
         {
-            Debug.LogWarning("[EditorInit] CopyChartToTemp: 谱面路径为空，跳过");
             return;
         }
 
@@ -179,7 +177,6 @@ public class EditorInit : MonoBehaviour
         }
         catch (Exception ex)
         {
-            Debug.LogError($"[EditorInit] 复制 chart.json 失败: {ex}");
         }
     }
 
@@ -192,7 +189,6 @@ public class EditorInit : MonoBehaviour
         if (File.Exists(tmpPath))
         {
             File.Delete(tmpPath);
-            Debug.Log($"[{GetType().Name}] 已清理临时文件");
         }
     }
 
@@ -204,7 +200,6 @@ public class EditorInit : MonoBehaviour
     {
         if (string.IsNullOrEmpty(ChartPath))
         {
-            Debug.LogWarning("[EditorInit] PersistToChartJson: ChartPath 为空，跳过持久化");
             return;
         }
 
@@ -217,10 +212,6 @@ public class EditorInit : MonoBehaviour
         {
             cubeManager.SaveCubesToJson();
         }
-        else
-        {
-            Debug.LogWarning("[EditorInit] PersistToChartJson: CubeManager 未找到");
-        }
 
         try
         {
@@ -228,16 +219,10 @@ public class EditorInit : MonoBehaviour
             if (File.Exists(tmpPath))
             {
                 File.Copy(tmpPath, jsonPath, overwrite: true);
-                Debug.Log($"[EditorInit] 已持久化到 chart.json");
-            }
-            else
-            {
-                Debug.LogWarning($"[EditorInit] PersistToChartJson: chart.tmp 不存在: {tmpPath}");
             }
         }
         catch (Exception ex)
         {
-            Debug.LogError($"[EditorInit] 持久化到 chart.json 失败: {ex.Message}");
         }
     }
 
@@ -248,7 +233,6 @@ public class EditorInit : MonoBehaviour
             var illustrationPath = Path.Combine(m_infoDir, "illustration.png");
             if (string.IsNullOrEmpty(m_infoDir) || !File.Exists(illustrationPath))
             {
-                Debug.LogWarning("[EditorInit] 曲绘文件缺失，跳过背景加载");
                 return;
             }
 
@@ -256,7 +240,6 @@ public class EditorInit : MonoBehaviour
                 m_imageTypeManager.SetImageToString(illustrationPath));
             if (tex == null)
             {
-                Debug.LogWarning("[EditorInit] 曲绘纹理解析失败，跳过背景加载");
                 return;
             }
 
@@ -268,7 +251,6 @@ public class EditorInit : MonoBehaviour
             var bgImage = playScreen?.GetComponent<Image>();
             if (bgImage == null)
             {
-                Debug.LogWarning("[EditorInit] PlayScreen 或其 Image 组件缺失，跳过曲绘设置");
                 return;
             }
 
@@ -282,12 +264,10 @@ public class EditorInit : MonoBehaviour
             if (blurObj != null)
             {
                 blurObj.gameObject.SetActive(false);
-                Debug.Log($"[{GetType().Name}] 已禁用 Blur GameObject（改用预模糊曲绘）");
             }
         }
         catch (Exception ex)
         {
-            Debug.LogError($"[{GetType().Name}] 加载曲绘失败: {ex}");
         }
     }
 
@@ -301,7 +281,6 @@ public class EditorInit : MonoBehaviour
         var blurShader = Shader.Find("Hidden/GaussianBlur");
         if (blurShader == null)
         {
-            Debug.LogWarning("[EditorInit] 未找到 Hidden/GaussianBlur shader，返回原图");
             return source;
         }
 
@@ -340,14 +319,12 @@ public class EditorInit : MonoBehaviour
 
             if (www.result != UnityWebRequest.Result.Success)
             {
-                Debug.LogError($"音频加载失败: {www.error}");
                 yield break;
             }
 
             var clip = DownloadHandlerAudioClip.GetContent(www);
             if (clip == null || music == null)
             {
-                Debug.LogWarning("[EditorInit] 音频剪辑或 AudioSource 为空，跳过时间初始化");
                 yield break;
             }
 

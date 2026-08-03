@@ -96,7 +96,6 @@ public class ChartSelect : MonoBehaviour
         }
         catch (Exception ex)
         {
-            Debug.LogWarning($"[ChartSelect] 加载封面失败 (folder: {folderPath}): {ex.Message}");
         }
 
         // 读取并解析JSON文件（单目录损坏不应中断整个列表构建）
@@ -105,7 +104,6 @@ public class ChartSelect : MonoBehaviour
             var chartPath = Path.Combine(folderPath, "chart.json");
             if (!File.Exists(chartPath))
             {
-                Debug.LogWarning($"[ChartSelect] 缺少 chart.json (folder: {folderPath})");
                 Destroy(chartButton.gameObject);
                 return;
             }
@@ -114,7 +112,6 @@ public class ChartSelect : MonoBehaviour
             var data = JsonUtility.FromJson<ChartData>(readData);
             if (data?.info == null)
             {
-                Debug.LogWarning($"[ChartSelect] chart.json 格式无效 (folder: {folderPath})");
                 Destroy(chartButton.gameObject);
                 return;
             }
@@ -124,7 +121,6 @@ public class ChartSelect : MonoBehaviour
         }
         catch (Exception ex)
         {
-            Debug.LogWarning($"[ChartSelect] 解析谱面失败 (folder: {folderPath}): {ex.Message}");
             Destroy(chartButton.gameObject);
             return;
         }
@@ -207,7 +203,6 @@ public class ChartSelect : MonoBehaviour
 
             if (string.IsNullOrEmpty(musicPath) || string.IsNullOrEmpty(illustrationPath))
             {
-                Debug.LogWarning("[ChartSelect] 请先选择音乐与封面图片");
                 Directory.Delete(chartPath);
                 return;
             }
@@ -217,7 +212,6 @@ public class ChartSelect : MonoBehaviour
         }
         catch (Exception ex)
         {
-            Debug.LogError($"[ChartSelect] 复制文件失败: {ex.Message}");
             Directory.Delete(chartPath, true);
             return;
         }
@@ -241,7 +235,6 @@ public class ChartSelect : MonoBehaviour
         }
         catch (Exception ex)
         {
-            Debug.LogError($"[ChartSelect] 写入 chart.json 失败: {ex.Message}");
             Directory.Delete(chartPath, true);
             return;
         }

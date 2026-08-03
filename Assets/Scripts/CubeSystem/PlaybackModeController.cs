@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.UI;
+using TMPro;
 using DG.Tweening;
 using RuntimePlayback;
 using HexMap;
@@ -28,10 +29,14 @@ public class PlaybackModeController : MonoBehaviour
     // Note 在方体前方的 Z 偏移（方体可见面在 local Z=-0.5，Note 在其前方）
     private const float k_noteZOffset = -0.55f;
 
-    // 编辑模式下背景和展示区的变暗系数（0=全黑，1=原色）
-    private const float k_dimFactor = 0.4f;
-    private static readonly Color k_dimColor = new Color(k_dimFactor, k_dimFactor, k_dimFactor, 1f);
+    // 编辑模式下背景曲绘（曲目美术）的变暗系数（0=全黑，1=原色）
+    private const float k_trackDimFactor = 0.4f;
+    private static readonly Color k_trackDimColor = new Color(k_trackDimFactor, k_trackDimFactor, k_trackDimFactor, 1f);
     private static readonly Color k_fullColor = Color.white;
+
+    // 编辑模式下展示区（方体展示面板）的变暗系数（0=全黑，1=原色）
+    private const float k_cubeDimFactor = 0.4f;
+    private static readonly Color k_cubeDimColor = new Color(k_cubeDimFactor, k_cubeDimFactor, k_cubeDimFactor, 1f);
 
     // Fake Note 半透明颜色（3D 预览与编辑器一致，且命中后无打击特效）
     private static readonly Color k_fakeColor = new Color(1f, 1f, 1f, 0.5f);
@@ -68,6 +73,34 @@ public class PlaybackModeController : MonoBehaviour
 
     // ---- 打击特效 ----
     private HitEffectManager m_hitEffect;
+
+    // ---- Combo 计数显示 ----
+    // combo SDF 字体资源路径（Assets/Fonts/combo SDF.asset）
+    private const string k_comboFontAssetPath = "Assets/Fonts/combo SDF.asset";
+    // combo 源字体文件路径（combo SDF 资产图集为空时的回退）
+    private const string k_comboSourceFontPath = "Assets/Fonts/combo.ttf";
+
+    // 数字行与 COMBO 标签行的显示名称
+    private const string k_comboNumberName = "ComboNumber";
+    private const string k_comboLabelName = "ComboLabel";
+
+    // 数字顶部距 PlayScreen 顶部的偏移（像素）
+    private const float k_comboTopMargin = 20f;
+    // 数字字号
+    private const float k_comboNumberFontSize = 72f;
+    // COMBO 标签字号
+    private const float k_comboLabelFontSize = 24f;
+    // 数字底部与标签顶部之间的间距（像素）
+    private const float k_comboLabelGap = 6f;
+
+    // 文字描边（放映时背景变亮，描边保证数字/标签清晰可读）
+    private const float k_comboOutlineWidth = 0.2f;
+    private static readonly Color k_comboOutlineColor = new Color(0f, 0f, 0f, 1f);
+
+    private TMP_FontAsset m_comboFont;
+    private TextMeshProUGUI m_comboNumberText;
+    private TextMeshProUGUI m_comboLabelText;
+    private int m_comboCount;
 
     private struct PlaybackNote
     {
@@ -123,6 +156,9 @@ public class PlaybackModeController : MonoBehaviour
 
         // 加载谱面数据并发现方体（编辑模式下也驱动动画）
         RefreshChartPlayback();
+
+        // 创建 Combo 计数显示（PlayScreen 竖中线顶部）
+        CreateComboDisplay();
     }
 
     private void Update()
@@ -174,11 +210,17 @@ public class PlaybackModeController : MonoBehaviour
         // Note 下落（播放和编辑模式都更新）
         UpdatePlaybackNotes(currentTime);
 
+        // Combo 由时间驱动：既定播放器默认全中，combo = 当前时间前已消失的 Note 数（滚动条跳转自动重算）
+        UpdateComboByTime(currentTime);
+
         // 始终驱动方体动画
         if (m_chartPlayback != null && m_chartPlayback.ChartData != null)
         {
             m_chartPlayback.UpdateAllCubes(currentTime);
         }
+
+        // 保证 Combo 显示始终渲染在最上层（其他编辑层可能在 Start 后才创建）
+        EnsureComboDisplayOnTop();
     }
 
     /// <summary>
@@ -217,15 +259,11 @@ public class PlaybackModeController : MonoBehaviour
         if (string.IsNullOrEmpty(EditorInit.ChartPath)) return;
 
         string chartPath = System.IO.Path.Combine(EditorInit.ChartPath, "chart.tmp");
-        bool loaded = m_chartPlayback.LoadChart(chartPath);
+        m_chartPlayback.LoadChart(chartPath);
         m_chartPlayback.DiscoverCubes();
 
         if (System.IO.File.Exists(chartPath))
             m_lastChartWriteTime = System.IO.File.GetLastWriteTime(chartPath);
-
-        Debug.Log($"[{GetType().Name}] RefreshChartPlayback: loaded={loaded}, " +
-                  $"animators={m_chartPlayback.CubeAnimatorCount}, " +
-                  $"chartData={m_chartPlayback.ChartData != null}");
     }
 
     /// <summary>
@@ -247,7 +285,6 @@ public class PlaybackModeController : MonoBehaviour
         }
         catch (System.Exception ex)
         {
-            Debug.LogWarning($"[{GetType().Name}] 读取 offset 失败: {ex.Message}");
             return 0f;
         }
     }
@@ -298,25 +335,30 @@ public class PlaybackModeController : MonoBehaviour
             }
         }
 
-        // 背景曲绘 Image（PlayScreen 自身的 Graphic）
+        // 背景曲绘 Image（PlayScreen 自身的 Graphic）：
+        // 统一使用默认 UI 材质，保证 Graphic.color 着色（DOColor 变暗/变亮）生效
         if (m_playScreenGraphic == null)
         {
             m_playScreenGraphic = GetComponent<Graphic>();
-            // 编辑模式下初始变暗
-            if (m_playScreenGraphic != null && !m_isPlaying)
+            if (m_playScreenGraphic != null)
             {
-                m_playScreenGraphic.color = k_dimColor;
+                m_playScreenGraphic.material = Canvas.GetDefaultCanvasMaterial();
+                // 编辑模式下初始变暗（放映时亮度由 Enter/ExitPlaybackMode 的 DOColor 控制）
+                if (!m_isPlaying)
+                {
+                    m_playScreenGraphic.color = k_trackDimColor;
+                }
             }
         }
 
-        // 方体展示区 RawImage
+        // 方体展示区 RawImage（编辑模式下变暗，与曲绘独立变量控制）
         if (m_cubeDisplayGraphic == null && m_cubeManager != null)
         {
             m_cubeDisplayGraphic = m_cubeManager.CubeDisplay;
             // 编辑模式下初始变暗
             if (m_cubeDisplayGraphic != null && !m_isPlaying)
             {
-                m_cubeDisplayGraphic.color = k_dimColor;
+                m_cubeDisplayGraphic.color = k_cubeDimColor;
             }
         }
     }
@@ -359,23 +401,23 @@ public class PlaybackModeController : MonoBehaviour
 
         if (keepGrid)
         {
-            // 进入 Display 模式：恢复网格等编辑层并开启自动滚动跟随，背景保持编辑模式的变暗状态
+            // 进入 Display 模式：恢复网格等编辑层并开启自动滚动跟随，背景与展示区保持编辑模式的变暗状态
             m_gridGroup?.DOFade(1f, k_fadeDuration);
             m_noteLayerGroup?.DOFade(1f, k_fadeDuration);
             m_easingGroup?.DOFade(1f, k_fadeDuration);
             m_referenceLineGraphic?.DOFade(k_refLineAlpha, k_fadeDuration);
-            m_playScreenGraphic?.DOColor(k_dimColor, k_fadeDuration);
-            m_cubeDisplayGraphic?.DOColor(k_dimColor, k_fadeDuration);
+            m_playScreenGraphic?.DOColor(k_trackDimColor, k_fadeDuration);
+            m_cubeDisplayGraphic?.DOColor(k_cubeDimColor, k_fadeDuration);
             m_gridManager?.SetFollowPlayback(true);
         }
         else
         {
-            // 退出 Display 模式：淡出网格等编辑层并关闭跟随，背景恢复全亮
+            // 退出 Display 模式：淡出网格等编辑层并关闭跟随，曲绘保持变暗、展示区恢复全亮
             m_gridGroup?.DOFade(0f, k_fadeDuration);
             m_noteLayerGroup?.DOFade(0f, k_fadeDuration);
             m_easingGroup?.DOFade(0f, k_fadeDuration);
             m_referenceLineGraphic?.DOFade(0f, k_fadeDuration);
-            m_playScreenGraphic?.DOColor(k_fullColor, k_fadeDuration);
+            m_playScreenGraphic?.DOColor(k_trackDimColor, k_fadeDuration);
             m_cubeDisplayGraphic?.DOColor(k_fullColor, k_fadeDuration);
             m_gridManager?.SetFollowPlayback(false);
         }
@@ -399,11 +441,10 @@ public class PlaybackModeController : MonoBehaviour
             m_referenceLineGraphic?.DOFade(0f, k_fadeDuration);
         }
 
-        // Display 模式：背景和展示区保持编辑模式的变暗状态，不变亮
+        // 非 Display 模式：曲绘保持变暗，展示区恢复全亮
         if (!m_keepGridDuringPlayback)
         {
-            // 背景和展示区恢复全亮
-            m_playScreenGraphic?.DOColor(k_fullColor, k_fadeDuration);
+            m_playScreenGraphic?.DOColor(k_trackDimColor, k_fadeDuration);
             m_cubeDisplayGraphic?.DOColor(k_fullColor, k_fadeDuration);
         }
 
@@ -413,11 +454,9 @@ public class PlaybackModeController : MonoBehaviour
         // 重新加载谱面（获取最新锚点修改）
         RefreshChartPlayback();
 
-        m_spawnedKeys.Clear();
+        // 清掉编辑模式下已在下落的预览 Note，避免进入放映后重复生成导致 Combo 翻倍
+        ClearPlaybackNotes();
         m_prevTime = m_chartPlayback != null ? m_chartPlayback.CurrentTime : 0f;
-
-        float offsetSeconds = m_chartPlayback != null ? m_chartPlayback.PlaybackOffsetSeconds : 0f;
-        Debug.Log($"[{GetType().Name}] 进入放映模式，音乐偏移 offset={offsetSeconds * 1000f:F1}ms");
     }
 
     private void ExitPlaybackMode()
@@ -436,12 +475,11 @@ public class PlaybackModeController : MonoBehaviour
             m_referenceLineGraphic?.DOFade(k_refLineAlpha, k_fadeDuration);
         }
 
-        // Display 模式：背景和展示区本就未变亮，保持变暗
+        // 非 Display 模式：退出放映后背景曲绘和展示区恢复变暗
         if (!m_keepGridDuringPlayback)
         {
-            // 背景和展示区变暗
-            m_playScreenGraphic?.DOColor(k_dimColor, k_fadeDuration);
-            m_cubeDisplayGraphic?.DOColor(k_dimColor, k_fadeDuration);
+            m_playScreenGraphic?.DOColor(k_trackDimColor, k_fadeDuration);
+            m_cubeDisplayGraphic?.DOColor(k_cubeDimColor, k_fadeDuration);
         }
 
         // 恢复 CubeCamera 到编辑模式
@@ -450,8 +488,6 @@ public class PlaybackModeController : MonoBehaviour
         // 方体动画继续由 UpdateCubeAnimation 驱动（切换为网格时间）
 
         ClearPlaybackNotes();
-
-        Debug.Log($"[{GetType().Name}] 退出放映模式");
     }
 
     // ---- 3D Note 下落逻辑 ----
@@ -662,12 +698,6 @@ public class PlaybackModeController : MonoBehaviour
 
             if (currentTime >= destroyTime)
             {
-#if UNITY_EDITOR
-                if (m_playbackNotes[i].IsHold)
-                {
-                    Debug.Log($"[Playback] Destroy Hold: t={currentTime:F2}, hit={m_playbackNotes[i].HitTime:F2}, end={m_playbackNotes[i].EndTime:F2}, dur={m_playbackNotes[i].EndTime - m_playbackNotes[i].HitTime:F2}");
-                }
-#endif
                 if (m_playbackNotes[i].View != null)
                 {
                     m_playbackNotes[i].View.SetActive(false);
@@ -726,9 +756,6 @@ public class PlaybackModeController : MonoBehaviour
 
         if (isHold)
         {
-#if UNITY_EDITOR
-            Debug.Log($"[Playback] Spawn Hold: time={note.time:F2}, endTime={note.endTime:F2}, duration={note.endTime - note.time:F2}");
-#endif
             SpawnHoldNote(note, cubeTransform, fallingDir, startPos, endPos,
                 k_fixedNoteSize, isVerticalFall, effectiveLookAhead);
             return;
@@ -920,6 +947,150 @@ public class PlaybackModeController : MonoBehaviour
         m_playbackNotes.Clear();
         m_spawnedKeys.Clear();
         m_hitEffect?.ClearAll();
+    }
+
+    // ---- Combo 计数显示 ----
+
+    /// <summary>
+    /// 在 PlayScreen 竖中线顶部创建 Combo 计数显示：
+    /// 第一行是 Combo 数字，第二行是 COMBO 五个字母，均使用 combo SDF 字体。
+    /// </summary>
+    private void CreateComboDisplay()
+    {
+        if (transform.Find(k_comboNumberName) != null || transform.Find(k_comboLabelName) != null) return;
+
+        // 数字（第一行）
+        m_comboNumberText = CreateComboText(k_comboNumberName, -k_comboTopMargin, k_comboNumberFontSize);
+
+        // COMBO 标签（第二行，位于数字下方）
+        float labelTop = -(k_comboTopMargin + k_comboNumberFontSize + k_comboLabelGap);
+        m_comboLabelText = CreateComboText(k_comboLabelName, labelTop, k_comboLabelFontSize);
+        m_comboLabelText.text = "COMBO";
+
+        UpdateComboDisplay();
+    }
+
+    /// <summary>
+    /// 创建单个 Combo TMP 文本：锚定在 PlayScreen 顶部水平居中（竖中线顶部），
+    /// topOffset 为文本顶部相对 PlayScreen 顶部的偏移（负值向下）。
+    /// </summary>
+    private TextMeshProUGUI CreateComboText(string objectName, float topOffset, float fontSize)
+    {
+        var go = new GameObject(objectName);
+        go.transform.SetParent(transform, false);
+        go.layer = LayerConstants.Ui;
+
+        var rect = go.AddComponent<RectTransform>();
+        rect.anchorMin = new Vector2(0.5f, 1f);
+        rect.anchorMax = new Vector2(0.5f, 1f);
+        rect.pivot = new Vector2(0.5f, 1f);
+        rect.anchoredPosition = new Vector2(0f, topOffset);
+        rect.sizeDelta = new Vector2(400f, 120f);
+
+        var text = go.AddComponent<TextMeshProUGUI>();
+        text.font = GetComboFont();
+        text.fontSize = fontSize;
+        text.alignment = TextAlignmentOptions.Top;
+        text.color = Color.white;
+        text.outlineColor = k_comboOutlineColor;
+        text.outlineWidth = k_comboOutlineWidth;
+        text.enableWordWrapping = false;
+        text.raycastTarget = false;
+        text.text = "0";
+
+        go.transform.SetAsLastSibling();
+        return text;
+    }
+
+    /// <summary>
+    /// 获取 combo SDF 字体资源（优先加载项目中已有的 combo SDF 资产；
+    /// 资产图集无效时回退为从源字体重新创建，确保显示正常）
+    /// </summary>
+    private TMP_FontAsset GetComboFont()
+    {
+        if (m_comboFont != null) return m_comboFont;
+
+#if UNITY_EDITOR
+        // 编辑器下直接按路径加载已制作好的 combo SDF 字体资源
+        TMP_FontAsset asset = UnityEditor.AssetDatabase.LoadAssetAtPath<TMP_FontAsset>(k_comboFontAssetPath);
+        if (asset != null && !IsFontAtlasValid(asset))
+        {
+            // 图集无效（0 尺寸/无贴图）：从源字体重新创建动态字体资产
+            var sourceFont = UnityEditor.AssetDatabase.LoadAssetAtPath<Font>(k_comboSourceFontPath);
+            if (sourceFont != null)
+            {
+                asset = TMP_FontAsset.CreateFontAsset(sourceFont);
+            }
+        }
+        m_comboFont = asset;
+#endif
+
+        // 加载失败时返回 null，TMP 会回退到默认字体，不影响显示
+        return m_comboFont;
+    }
+
+    /// <summary>
+    /// 检查字体资产图集是否有效（无效时需回退重建）
+    /// </summary>
+    private static bool IsFontAtlasValid(TMP_FontAsset fontAsset)
+    {
+        if (fontAsset.atlasTextures == null || fontAsset.atlasTextures.Length == 0) return false;
+
+        Texture2D atlas = fontAsset.atlasTextures[0];
+        return atlas != null && atlas.width > 0 && atlas.height > 0;
+    }
+
+    /// <summary>
+    /// 保证 Combo 显示始终在 PlayScreen 最上层渲染
+    /// </summary>
+    private void EnsureComboDisplayOnTop()
+    {
+        if (m_comboNumberText == null || m_comboLabelText == null) return;
+
+        Transform root = transform;
+        if (root.childCount < 2) return;
+
+        int lastIndex = root.childCount - 1;
+        // 两个 Combo 文本应占据最后两个兄弟位置；仅当其他层在其后创建时才需重排
+        if (m_comboNumberText.transform.GetSiblingIndex() < lastIndex - 1
+            || m_comboLabelText.transform.GetSiblingIndex() < lastIndex - 1)
+        {
+            m_comboLabelText.transform.SetAsLastSibling();
+            m_comboNumberText.transform.SetAsLastSibling();
+        }
+    }
+
+    /// <summary>
+    /// 按时间驱动 Combo：既定播放器默认每个键都被精准击中，
+    /// combo = 当前时间之前已到达击打时间（已消失）的非 Fake Note 数量。
+    /// 滚动条跳转时时间变化，combo 随之重算，无需特殊重置。
+    /// </summary>
+    private void UpdateComboByTime(float currentTime)
+    {
+        if (m_notePlacementManager == null) return;
+
+        var notes = m_notePlacementManager.GetCurrentNotes();
+        int count = 0;
+        foreach (var note in notes)
+        {
+            // Fake Note 不计入 Combo；Hold 只按开头击打时间计一次
+            if (note.isFake || note.time > currentTime) continue;
+            count++;
+        }
+
+        if (m_comboCount != count)
+        {
+            m_comboCount = count;
+            UpdateComboDisplay();
+        }
+    }
+
+    private void UpdateComboDisplay()
+    {
+        if (m_comboNumberText != null)
+        {
+            m_comboNumberText.text = m_comboCount.ToString();
+        }
     }
 
     private void OnDisable()

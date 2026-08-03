@@ -562,9 +562,6 @@ public class GridManager : MonoBehaviour
             UpdateSlider();
             UpdateTimeText();
         }
-
-        // Debug.Log($"[GridManager] HandleZoom delta={scrollDelta:F3} factor={factor:F3} " +
-        //          $"zoomScale={m_zoomScale:F3} centerTime={centerTime:F3}s scrollOffset={m_scrollOffset:F1}");
     }
 
     /// <summary>

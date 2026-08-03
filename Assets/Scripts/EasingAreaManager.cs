@@ -623,7 +623,6 @@ public class EasingAreaManager : MonoBehaviour
             // time=0 已有初始瞬时事件，不允许在此创建
             if (Mathf.Approximately(snappedTime, 0f))
             {
-                Debug.LogWarning($"[{GetType().Name}] time=0 已有初始瞬时事件，请选择其他时间点");
                 return;
             }
 
@@ -632,14 +631,12 @@ public class EasingAreaManager : MonoBehaviour
             m_pendingBarSlot = slot;
             m_pendingBarStartTime = snappedTime;
             ShowPendingMarker(slot, snappedTime);
-            Debug.Log($"[{GetType().Name}] 长条起点已确定: 槽{slot} 时间{snappedTime:F2}s，请移动鼠标并再次按 S 确定终点");
         }
         else
         {
             // 第二次按下：确定终点并创建长条
             if (slot != m_pendingBarSlot)
             {
-                Debug.LogWarning($"[{GetType().Name}] 第二次按下 S 时槽位不一致（{m_pendingBarSlot} vs {slot}），已取消");
                 CancelPendingBar();
                 return;
             }
@@ -672,7 +669,6 @@ public class EasingAreaManager : MonoBehaviour
 
             if (endTime - startTime < minDuration)
             {
-                Debug.LogWarning($"[{GetType().Name}] 长条时长过短（{endTime - startTime:F2}s），需要至少半拍");
                 CancelPendingBar();
                 return;
             }
@@ -958,8 +954,6 @@ public class EasingAreaManager : MonoBehaviour
                 RebuildBarVisuals();
                 SelectBar(slot, idx);
             });
-
-        Debug.Log($"[{GetType().Name}] 添加长条: 槽{slot} 时间{startTime:F2}s~{endTime:F2}s 值{startValue:F2}->{endValue:F2}");
     }
 
     /// <summary>
@@ -999,8 +993,6 @@ public class EasingAreaManager : MonoBehaviour
                 RebuildBarVisuals();
                 SelectBar(slot, idx);
             });
-
-        Debug.Log($"[{GetType().Name}] 添加瞬时事件: 槽{slot} 时间{time:F2}s 值{value:F2}");
     }
 
     /// <summary>
@@ -1048,7 +1040,6 @@ public class EasingAreaManager : MonoBehaviour
         var barToDelete = slotData.bars[barIndex];
         if (barToDelete.isInstant && Mathf.Approximately(barToDelete.startTime, 0f))
         {
-            Debug.LogWarning($"[{GetType().Name}] time=0 的初始瞬时事件不可删除");
             return;
         }
 
@@ -1845,15 +1836,10 @@ public class EasingAreaManager : MonoBehaviour
         var sourceFont = Resources.Load<Font>("Fonts/black");
         if (sourceFont == null)
         {
-            Debug.LogWarning($"[{GetType().Name}] 未找到 Fonts/black 字体，使用 TMP 默认字体");
             return null;
         }
 
         m_chineseFont = TMP_FontAsset.CreateFontAsset(sourceFont);
-        if (m_chineseFont == null)
-        {
-            Debug.LogWarning($"[{GetType().Name}] 创建动态 TMP 字体失败，使用 TMP 默认字体");
-        }
 
         return m_chineseFont;
     }
@@ -1929,8 +1915,6 @@ public class EasingAreaManager : MonoBehaviour
         UpdateMaxScroll();
         m_easingScrollOffset = Mathf.Clamp(m_easingScrollOffset, 0, m_maxScroll);
         m_easingContent.anchoredPosition = new Vector2(-m_easingScrollOffset, 0);
-
-        Debug.Log($"[{GetType().Name}] 进入全局事件区模式，共 {m_globalEvents.Count} 个事件，{GetGlobalLaneCount()} 条轨道");
     }
 
     /// <summary>
@@ -1968,8 +1952,6 @@ public class EasingAreaManager : MonoBehaviour
         // 重建普通模式长条
         EnsureSlotDataExists();
         RebuildBarVisuals();
-
-        Debug.Log($"[{GetType().Name}] 退出全局事件区模式");
     }
 
     /// <summary>
@@ -2428,7 +2410,6 @@ public class EasingAreaManager : MonoBehaviour
         // 不允许删除 time=0 的初始瞬时事件
         if (evt.bar.isInstant && Mathf.Approximately(evt.bar.startTime, 0f))
         {
-            Debug.LogWarning($"[{GetType().Name}] time=0 的初始瞬时事件不可删除");
             return;
         }
 
@@ -2438,7 +2419,6 @@ public class EasingAreaManager : MonoBehaviour
         int barIndex = slotData.bars.IndexOf(evt.bar);
         if (barIndex < 0)
         {
-            Debug.LogWarning($"[{GetType().Name}] 未在原始数据中找到要删除的长条");
             return;
         }
 
@@ -2450,8 +2430,6 @@ public class EasingAreaManager : MonoBehaviour
         CollectGlobalEvents();
         AssignGlobalLanes();
         RebuildGlobalBarVisuals();
-
-        Debug.Log($"[{GetType().Name}] 删除全局长条: Cube{evt.cubeId} 槽{evt.slotIndex} 时间{evt.bar.startTime:F2}s");
     }
 
     /// <summary>
@@ -2481,7 +2459,6 @@ public class EasingAreaManager : MonoBehaviour
         {
             if (Mathf.Approximately(snappedTime, 0f))
             {
-                Debug.LogWarning($"[{GetType().Name}] time=0 已有初始瞬时事件，请选择其他时间点");
                 return;
             }
 
@@ -2490,7 +2467,6 @@ public class EasingAreaManager : MonoBehaviour
             // 复用普通模式的 pendingBarSlot 存储创建信息（-1 表示全局模式）
             m_pendingBarSlot = -1;
             ShowGlobalPendingMarker(snappedTime);
-            Debug.Log($"[{GetType().Name}] 全局长条起点已确定: 时间{snappedTime:F2}s，请再次按 S 确定终点");
         }
         else
         {
@@ -2519,7 +2495,6 @@ public class EasingAreaManager : MonoBehaviour
 
             if (endTime - startTime < minDuration)
             {
-                Debug.LogWarning($"[{GetType().Name}] 长条时长过短，需要至少半拍");
                 CancelPendingBar();
                 return;
             }
@@ -2655,8 +2630,6 @@ public class EasingAreaManager : MonoBehaviour
                 break;
             }
         }
-
-        Debug.Log($"[{GetType().Name}] 全局添加长条: Cube{targetCubeId} 槽{targetSlot} 时间{startTime:F2}s~{endTime:F2}s");
     }
 
     /// <summary>
@@ -2723,7 +2696,6 @@ public class EasingAreaManager : MonoBehaviour
         var newCube = m_cubeManager.GetCube(newCubeId);
         if (newCube == null)
         {
-            Debug.LogWarning($"[{GetType().Name}] 方体不存在: ID={newCubeId}");
             return;
         }
 
@@ -2791,8 +2763,6 @@ public class EasingAreaManager : MonoBehaviour
                 break;
             }
         }
-
-        Debug.Log($"[{GetType().Name}] 全局长条方体变更: Cube{evt.cubeId} -> Cube{newCubeId}");
     }
 
     /// <summary>
@@ -2861,8 +2831,6 @@ public class EasingAreaManager : MonoBehaviour
                 break;
             }
         }
-
-        Debug.Log($"[{GetType().Name}] 全局长条轨道变更: {evt.face}_{evt.direction} -> {newFace}_{newDirection}");
     }
 
     #endregion

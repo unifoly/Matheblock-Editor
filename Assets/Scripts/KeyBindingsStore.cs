@@ -493,7 +493,6 @@ namespace HexMap
             }
             catch (Exception ex)
             {
-                Debug.LogWarning($"[KeyBindingsStore] 删除文件失败: {ex.Message}");
             }
 
             // 同时清理旧的 PlayerPrefs 数据（兼容迁移）
@@ -547,7 +546,6 @@ namespace HexMap
             }
             catch (Exception ex)
             {
-                Debug.LogError($"[KeyBindingsStore] 加载 JSON 失败: {ex.Message}");
             }
         }
 
@@ -580,7 +578,6 @@ namespace HexMap
                 Save();
                 PlayerPrefs.DeleteKey("HexMap_KeyBindings");
                 PlayerPrefs.Save();
-                Debug.Log("[KeyBindingsStore] 已从 PlayerPrefs 迁移到 JSON 文件");
             }
         }
 
@@ -607,7 +604,6 @@ namespace HexMap
             }
             catch (Exception ex)
             {
-                Debug.LogError($"[KeyBindingsStore] 保存 JSON 失败: {ex.Message}");
             }
         }
 

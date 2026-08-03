@@ -83,7 +83,6 @@ namespace HexMap
             }
             catch (Exception ex)
             {
-                Debug.LogError($"[SettingsDataManager] 初始化失败，使用默认设置: {ex}");
             }
         }
 
@@ -133,7 +132,6 @@ namespace HexMap
             }
             catch (Exception ex)
             {
-                Debug.LogError($"[SettingsDataManager] 加载 JSON 失败: {ex.Message}");
             }
         }
 
@@ -164,8 +162,6 @@ namespace HexMap
             PlayerPrefs.DeleteKey("Settings_SFXVolume");
             PlayerPrefs.DeleteKey("Settings_ResolutionIndex");
             PlayerPrefs.Save();
-
-            Debug.Log("[SettingsDataManager] 已从 PlayerPrefs 迁移到 JSON 文件");
         }
 
         public static void Save()
@@ -188,7 +184,6 @@ namespace HexMap
             }
             catch (Exception ex)
             {
-                Debug.LogError($"[SettingsDataManager] 保存 JSON 失败: {ex.Message}");
             }
         }
 

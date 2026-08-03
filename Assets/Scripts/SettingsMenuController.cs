@@ -310,7 +310,6 @@ namespace HexMap
             Transform content = FindEditorSettingsContent();
             if (content == null)
             {
-                Debug.LogWarning($"[{GetType().Name}] 未找到编辑器设置页内容容器，跳过下拉行创建", this);
                 return;
             }
 
@@ -572,7 +571,6 @@ namespace HexMap
             var sourceFont = Resources.Load<Font>("Fonts/black");
             if (sourceFont == null)
             {
-                Debug.LogWarning($"[{GetType().Name}] 未找到 Fonts/black 字体，使用 TMP 默认字体", this);
                 return null;
             }
 

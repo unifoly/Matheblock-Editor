@@ -99,10 +99,6 @@ public class AnchorPointEditorUI : MonoBehaviour
         {
             m_functionChanger = fcObj;
         }
-        else
-        {
-            Debug.LogWarning($"[{GetType().Name}] 未找到 FunctionChanger，长条编辑面板无法显示");
-        }
     }
 
     #region 事件处理
@@ -1232,7 +1228,6 @@ public class AnchorPointEditorUI : MonoBehaviour
         var sourceFont = Resources.Load<Font>("Fonts/black");
         if (sourceFont == null)
         {
-            Debug.LogWarning($"[{GetType().Name}] 未找到 Fonts/black 字体，使用 TMP 默认字体");
             return null;
         }
 

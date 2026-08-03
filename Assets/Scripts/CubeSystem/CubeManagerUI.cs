@@ -74,7 +74,6 @@ public class CubeManagerUI : MonoBehaviour
         m_cubeManager = FindObjectOfType<CubeManager>();
         if (m_cubeManager == null)
         {
-            Debug.LogError($"[{GetType().Name}] 未找到 CubeManager 组件！请确认场景中存在 CubeSystem GameObject");
             return;
         }
 
@@ -145,8 +144,6 @@ public class CubeManagerUI : MonoBehaviour
                 {
                     m_cubeIdInput.text = "1";
                 }
-
-                Debug.Log($"[{GetType().Name}] CubeID 输入框绑定成功");
             }
         }
 
@@ -155,7 +152,6 @@ public class CubeManagerUI : MonoBehaviour
         if (surfaceObj != null)
         {
             BindDirectionButtons(surfaceObj, m_surfaceButtons, HandleSurfaceButtonClicked);
-            Debug.Log($"[{GetType().Name}] Surface 按钮绑定: {m_surfaceButtons.Count} 个");
         }
 
         // Side 方向选择按钮（4个方向：Up/Down/Left/Right）
@@ -163,7 +159,6 @@ public class CubeManagerUI : MonoBehaviour
         if (sideObj != null)
         {
             BindDirectionButtons(sideObj, m_sideButtons, HandleSideButtonClicked);
-            Debug.Log($"[{GetType().Name}] Side 按钮绑定: {m_sideButtons.Count} 个");
         }
 
         // NotePlacementManager（用于切换轨道组时重新加载 Note）
@@ -288,11 +283,6 @@ public class CubeManagerUI : MonoBehaviour
             {
                 SaveCurrentNotesToCubeTrack();
                 m_cubeManager.SetActiveCube(cubeId);
-                Debug.Log($"[{GetType().Name}] 快捷选中方体: ID={cubeId}");
-            }
-            else
-            {
-                Debug.LogWarning($"[{GetType().Name}] 方体不存在: ID={cubeId}");
             }
         }
     }
@@ -367,7 +357,6 @@ public class CubeManagerUI : MonoBehaviour
         }
 
         m_notePlacementManager.ReloadNotes(noteList);
-        Debug.Log($"[{GetType().Name}] 加载轨道: Cube#{cube.cubeId} {face}_{dir}，{noteList.Count} 个 Note");
     }
 
     /// <summary>
@@ -384,7 +373,6 @@ public class CubeManagerUI : MonoBehaviour
             m_cubeManager.SetActiveTrack(face, m_cubeManager.ActiveDirection);
             UpdateSurfaceButtonHighlight(faceName);
             LoadActiveTrackNotes();
-            Debug.Log($"[{GetType().Name}] 快捷选中面: {faceName}");
         }
     }
 
@@ -402,7 +390,6 @@ public class CubeManagerUI : MonoBehaviour
             m_cubeManager.SetActiveTrack(m_cubeManager.ActiveFace, direction);
             UpdateSideButtonHighlight(dirName);
             LoadActiveTrackNotes();
-            Debug.Log($"[{GetType().Name}] 快捷选中方向: {dirName}");
         }
     }
 
@@ -798,7 +785,6 @@ public class CubeManagerUI : MonoBehaviour
         {
             cube.cubeNote = value;
             m_cubeManager.SaveCubesToJson();
-            Debug.Log($"[{GetType().Name}] 方体 #{cubeId} 备注已更新: {value}");
         }
     }
 
@@ -849,7 +835,6 @@ public class CubeManagerUI : MonoBehaviour
         var sourceFont = Resources.Load<Font>("Fonts/black");
         if (sourceFont == null)
         {
-            Debug.LogWarning($"[{GetType().Name}] 未找到 Fonts/black 字体，使用 TMP 默认字体");
             return null;
         }
 

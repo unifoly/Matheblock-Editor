@@ -603,8 +603,8 @@ CubeManager.SetupCubeDisplay()
 
 | 事件 | 动作 |
 |------|------|
-| 进入放映（`EnterPlaybackMode`） | 淡出网格 / Note 层 / 缓动区 / 标定线（DOFade 0.4s）；背景与展示区恢复全亮（DOColor 白）；切换相机放映模式 |
-| 退出放映（`ExitPlaybackMode`） | 反向恢复；背景与展示区变暗（`k_dimFactor=0.4`） |
+| 进入放映（`EnterPlaybackMode`） | 淡出网格 / Note 层 / 缓动区 / 标定线（DOFade 0.4s）；曲绘保持变暗（`k_trackDimFactor=0.4`）、展示区恢复全亮（DOColor 白）；切换相机放映模式 |
+| 退出放映（`ExitPlaybackMode`） | 反向恢复；曲绘与展示区恢复编辑态变暗（`k_trackDimFactor` / `k_cubeDimFactor` = 0.4） |
 
 **淡出目标缓存（`CacheFadeTargets`）：**
 - `GridContainerRect` / `NoteLayerRect` → CanvasGroup（无则动态添加）
@@ -670,6 +670,36 @@ startDist = viewHalfExtent + noteHalf + 0.05f   // 略超视野边界
 | `EasingEvaluator` | 基于 DOTween Ease 在锚点间插值求值 |
 
 关键实现：`CubeAnimator.Initialize()` 在重复初始化前先 `RestoreOriginal()`，避免缓存动画后的状态作为基准，确保实时预览与放映均按锚点驱动。
+
+### 编辑模式背景变暗
+
+预处理（编辑）模式下 PlayScreen 背景整体变暗，突出编辑内容。曲绘与展示区使用**独立变量**控制，且曲绘在放映时也保持变暗：
+
+| 区域 | 变量 | 编辑模式 | 放映（非 Display） | Display 放映 |
+|------|------|----------|--------------------|--------------|
+| 背景曲绘（PlayScreen Graphic） | `k_trackDimFactor = 0.4` | 0.4 暗 | 0.4 暗 | 0.4 暗 |
+| 展示区（CubeDisplay RawImage） | `k_cubeDimFactor = 0.4` | 0.4 暗 | 1.0 亮 | 0.4 暗 |
+
+- 曲绘材质在 `CacheFadeTargets` 首次缓存时统一替换为默认 UI 材质（`Canvas.GetDefaultCanvasMaterial()`），保证 `Graphic.color` 着色生效
+- 场景中 PlayScreen 曲绘 Image 的序列化颜色基线为白色（1,1,1,1），编辑态经代码置为 0.4 形成明显对比
+
+### Combo 计数显示
+
+在 PlayScreen 竖中线顶部显示 Combo 计数：第一行数字（72px）、第二行 "COMBO" 字母（24px），使用 combo SDF 字体（`Assets/Fonts/combo SDF.asset`，图集为空时回退到 `combo.ttf` 动态生成），黑色描边保证可读性。
+
+**时间驱动计数**：既定播放器默认每个键都被精准击中，combo 不依赖命中判定，而是由当前时间直接决定——`combo = 当前时间之前已到达击打时间的非 Fake Note 数量`。滚动条跳转（seek）时时间变化，combo 自动重算，无需特殊重置。
+
+| 项 | 说明 |
+|----|------|
+| 计数规则 | `note.time <= 当前时间` 的非 Fake Note 计入；Hold 只按开头击打时间计一次 |
+| 播放/编辑 | 播放时用谱面时钟，编辑时用网格时间，两者均驱动 combo |
+| 跳转 | 拖动滚动条 / seek 时按新时间重算，不清零 |
+| 置顶 | 每帧 `EnsureComboDisplayOnTop()` 确保渲染在最上层 |
+
+关键实现（`PlaybackModeController`）：
+- `UpdateComboByTime(float currentTime)`：每帧统计已消失的非 Fake Note 数量，仅变化时刷新显示
+- `CreateComboDisplay()` / `GetComboFont()`：运行时构建显示与字体回退
+- 数据源复用 `NotePlacementManager.GetCurrentNotes()`（缓存复用，无每帧分配）
 
 ---
 

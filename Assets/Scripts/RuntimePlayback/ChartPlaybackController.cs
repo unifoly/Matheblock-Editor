@@ -67,7 +67,6 @@ namespace RuntimePlayback
         {
             if (string.IsNullOrEmpty(jsonPath) || !System.IO.File.Exists(jsonPath))
             {
-                Debug.LogWarning($"[ChartPlaybackController] 谱面文件不存在: {jsonPath}");
                 return false;
             }
 
@@ -86,30 +85,13 @@ namespace RuntimePlayback
                 RefreshPlaybackOffset();
                 if (m_chartData?.cubes == null || m_chartData.cubes.Count == 0)
                 {
-                    Debug.LogWarning("[ChartPlaybackController] 谱面中无方体数据");
                     return false;
                 }
-
-                // 诊断日志：输出加载的缓动槽数量和锚点总数
-                var sb = new System.Text.StringBuilder();
-                sb.Append($"加载谱面: {m_chartData.cubes.Count} 个方体");
-                foreach (var cube in m_chartData.cubes)
-                {
-                    int totalAnchors = 0;
-                    if (cube.easingSlots != null)
-                    {
-                        foreach (var slot in cube.easingSlots)
-                            totalAnchors += slot?.bars?.Count ?? 0;
-                    }
-                    sb.Append($"\n  Cube#{cube.cubeId}: slots={cube.easingSlots?.Count ?? 0}, bars={totalAnchors}");
-                }
-                Debug.Log($"[ChartPlaybackController] {sb}");
 
                 return true;
             }
             catch (System.Exception ex)
             {
-                Debug.LogError($"[ChartPlaybackController] 加载谱面失败: {ex.Message}");
                 return false;
             }
         }
@@ -140,7 +122,6 @@ namespace RuntimePlayback
             }
             catch (System.Exception ex)
             {
-                Debug.LogError($"[ChartPlaybackController] 重新加载谱面失败: {ex.Message}");
             }
         }
 
@@ -178,10 +159,6 @@ namespace RuntimePlayback
                 if (go != null)
                 {
                     RegisterCubeInternal(cube.cubeId, go);
-                }
-                else
-                {
-                    Debug.LogWarning($"[ChartPlaybackController] 未找到方体: {name}");
                 }
             }
         }
@@ -232,7 +209,6 @@ namespace RuntimePlayback
 
             if (cubeData == null)
             {
-                Debug.LogWarning($"[ChartPlaybackController] 谱面中无 cubeId={cubeId}");
                 return;
             }
 
@@ -276,7 +252,6 @@ namespace RuntimePlayback
             // 未分配音频时禁止进入播放态，否则结束检测因 clip==null 恒短路导致无法退出放映
             if (m_audioSource.clip == null)
             {
-                Debug.LogWarning($"[{GetType().Name}] 未分配音频文件，无法播放");
                 m_isPlaying = false;
                 return;
             }

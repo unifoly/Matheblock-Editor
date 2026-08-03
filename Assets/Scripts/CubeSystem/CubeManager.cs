@@ -156,7 +156,6 @@ public class CubeManager : MonoBehaviour
         m_activeCubeId = 1;
 
         SaveCubesToJson();
-        Debug.Log($"[{GetType().Name}] 创建默认方体: Cube_1 (ID=1)");
     }
 
     /// <summary>
@@ -185,7 +184,6 @@ public class CubeManager : MonoBehaviour
         SaveCubesToJson();
 
         CubeCreated?.Invoke(cubeData);
-        Debug.Log($"[{GetType().Name}] 创建方体: {cubeData.cubeName} (ID={cubeData.cubeId})，含 {cubeData.tracks.Count} 条轨道");
 
         return cubeData;
     }
@@ -198,14 +196,12 @@ public class CubeManager : MonoBehaviour
         // 仅剩1个方体时不允许删除
         if (m_cubes.Count <= 1)
         {
-            Debug.LogWarning($"[{GetType().Name}] 仅剩1个方体，不允许删除");
             return;
         }
 
         int index = m_cubes.FindIndex(c => c.cubeId == cubeId);
         if (index < 0)
         {
-            Debug.LogWarning($"[{GetType().Name}] 方体不存在: ID={cubeId}");
             return;
         }
 
@@ -238,8 +234,6 @@ public class CubeManager : MonoBehaviour
             UpdateCubeCameraPosition();
             ActiveCubeChanged?.Invoke(m_activeCubeId);
         }
-
-        Debug.Log($"[{GetType().Name}] 删除方体: ID={cubeId}");
     }
 
     /// <summary>
@@ -252,7 +246,6 @@ public class CubeManager : MonoBehaviour
         m_activeCubeId = cubeId;
         UpdateCubeCameraPosition();
         ActiveCubeChanged?.Invoke(cubeId);
-        Debug.Log($"[{GetType().Name}] 选中方体: ID={cubeId}，切换轨道组");
     }
 
     /// <summary>
@@ -263,7 +256,6 @@ public class CubeManager : MonoBehaviour
         m_activeFace = face;
         m_activeDirection = direction;
         ActiveTrackChanged?.Invoke(face, direction);
-        Debug.Log($"[{GetType().Name}] 选中轨道: {face}_{direction}");
     }
 
     /// <summary>
@@ -311,7 +303,6 @@ public class CubeManager : MonoBehaviour
         var playScreenObj = GameObject.Find("PlayScreen");
         if (playScreenObj == null)
         {
-            Debug.LogError($"[{GetType().Name}] 未找到 PlayScreen，无法设置方体显示");
             return;
         }
 
@@ -355,8 +346,6 @@ public class CubeManager : MonoBehaviour
         m_cubeDisplay = displayGo.AddComponent<RawImage>();
         m_cubeDisplay.texture = m_cubeRenderTexture;
         m_cubeDisplay.raycastTarget = false;
-
-        Debug.Log($"[{GetType().Name}] 方体 RenderTexture 显示已设置: {texWidth}x{texHeight}");
     }
 
     /// <summary>
@@ -428,7 +417,6 @@ public class CubeManager : MonoBehaviour
     {
         if (string.IsNullOrEmpty(EditorInit.ChartPath))
         {
-            Debug.LogWarning($"[{GetType().Name}] EditorInit.ChartPath 为空，无法定位谱面数据文件");
             return null;
         }
 
@@ -466,12 +454,9 @@ public class CubeManager : MonoBehaviour
 
             string jsonStr = JsonUtility.ToJson(data, true);
             File.WriteAllText(tmpPath, jsonStr);
-
-            Debug.Log($"[{GetType().Name}] 保存 {m_cubes.Count} 个方体到 chart.tmp");
         }
         catch (Exception ex)
         {
-            Debug.LogError($"[{GetType().Name}] 保存方体数据失败: {ex.Message}");
         }
     }
 
@@ -483,7 +468,6 @@ public class CubeManager : MonoBehaviour
         var tmpPath = GetTmpJsonPath();
         if (string.IsNullOrEmpty(tmpPath) || !File.Exists(tmpPath))
         {
-            Debug.Log($"[{GetType().Name}] 无已有方体数据，将在创建时初始化");
             return;
         }
 
@@ -531,13 +515,10 @@ public class CubeManager : MonoBehaviour
 
                 // 默认选中第一个方体
                 m_activeCubeId = m_cubes[0].cubeId;
-
-                Debug.Log($"[{GetType().Name}] 从 chart.tmp 加载 {m_cubes.Count} 个方体");
             }
         }
         catch (Exception ex)
         {
-            Debug.LogError($"[{GetType().Name}] 加载方体数据失败: {ex.Message}");
         }
     }
 

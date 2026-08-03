@@ -95,10 +95,6 @@ public class InfoManagerUI : MonoBehaviour
         {
             m_saveButton = saveObj.GetComponent<Button>();
         }
-        else
-        {
-            Debug.LogWarning($"[{GetType().Name}] 未找到 Save GameObject！");
-        }
     }
 
     private void OnEnable()
@@ -172,7 +168,6 @@ public class InfoManagerUI : MonoBehaviour
 
         // 持久化到 chart.json（含方体/锚点数据）
         EditorInit.PersistToChartJson();
-        Debug.Log($"[{GetType().Name}] Info 数据已保存并持久化到 chart.json");
     }
 
     #region 面板构建
@@ -441,7 +436,6 @@ public class InfoManagerUI : MonoBehaviour
         {
             // 复制选中的图片到谱面目录，覆盖已有的 illustration.png
             File.Copy(srcPath, destPath, overwrite: true);
-            Debug.Log($"[{GetType().Name}] 曲绘已更换: {srcPath} -> {destPath}");
 
             // 刷新预览
             RefreshPreview();
@@ -451,7 +445,6 @@ public class InfoManagerUI : MonoBehaviour
         }
         catch (Exception ex)
         {
-            Debug.LogError($"[{GetType().Name}] 更换曲绘失败: {ex.Message}");
         }
     }
 
@@ -478,7 +471,6 @@ public class InfoManagerUI : MonoBehaviour
         }
         catch (Exception ex)
         {
-            Debug.LogWarning($"[{GetType().Name}] 加载曲绘预览失败: {ex.Message}");
         }
     }
 
@@ -503,7 +495,6 @@ public class InfoManagerUI : MonoBehaviour
         }
         catch (Exception ex)
         {
-            Debug.LogWarning($"[{GetType().Name}] 更新 PlayScreen 背景失败: {ex.Message}");
         }
     }
 
@@ -517,7 +508,6 @@ public class InfoManagerUI : MonoBehaviour
         var blurShader = Shader.Find("Hidden/GaussianBlur");
         if (blurShader == null)
         {
-            Debug.LogWarning("[InfoManagerUI] 未找到 Hidden/GaussianBlur shader，返回原图");
             return source;
         }
 
@@ -574,7 +564,6 @@ public class InfoManagerUI : MonoBehaviour
         }
         catch (Exception ex)
         {
-            Debug.LogError($"[{GetType().Name}] 读取信息失败: {ex.Message}");
         }
     }
 
@@ -590,7 +579,6 @@ public class InfoManagerUI : MonoBehaviour
         if (m_musicNameInput == null || m_charterInput == null ||
             m_musicianInput == null || m_illustrationerInput == null || m_offsetInput == null)
         {
-            Debug.Log($"[{GetType().Name}] Info 面板未打开，跳过 Info 保存");
             return;
         }
 
@@ -622,7 +610,6 @@ public class InfoManagerUI : MonoBehaviour
         }
         catch (Exception ex)
         {
-            Debug.LogError($"[{GetType().Name}] 保存信息失败: {ex.Message}");
         }
     }
 

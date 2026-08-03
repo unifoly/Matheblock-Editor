@@ -102,8 +102,6 @@ public static class UndoRedoManager
         undo?.Invoke();
         s_redoStack.Push((undo, redo));
         UpdateButtons();
-
-        UnityEngine.Debug.Log($"[UndoRedoManager] 撤回成功，剩余 {s_undoStack.Count} 步可撤回，{s_redoStack.Count} 步可重做");
     }
 
     /// <summary>
@@ -117,8 +115,6 @@ public static class UndoRedoManager
         redo?.Invoke();
         s_undoStack.Push((undo, redo));
         UpdateButtons();
-
-        UnityEngine.Debug.Log($"[UndoRedoManager] 重做成功，剩余 {s_undoStack.Count} 步可撤回，{s_redoStack.Count} 步可重做");
     }
 
     /// <summary>

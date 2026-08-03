@@ -74,7 +74,6 @@ public class CubeVisualizer : MonoBehaviour
 
         if (unlitShader == null)
         {
-            Debug.LogError($"[{GetType().Name}] 未找到 Unlit/CubeUnlit shader，回退到 Unlit/Texture");
             unlitShader = Shader.Find("Unlit/Texture");
         }
 

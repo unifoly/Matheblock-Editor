@@ -123,7 +123,6 @@ namespace HexMap
                 var canvas = GetCanvasInScene();
                 if (canvas == null)
                 {
-                    Debug.LogWarning($"[{GetType().Name}] 未找到 Canvas 或菜单列表，无法自动创建返回主菜单按钮", this);
                     return null;
                 }
 
@@ -233,7 +232,6 @@ namespace HexMap
             var sourceFont = Resources.Load<Font>("Fonts/black");
             if (sourceFont == null)
             {
-                Debug.LogWarning($"[{GetType().Name}] 未找到 Fonts/black 字体，使用 TMP 默认字体", this);
                 return null;
             }
 

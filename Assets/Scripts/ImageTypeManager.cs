@@ -22,7 +22,6 @@ public class ImageTypeManager
         // 空数据直接返回，避免 FromBase64String 抛 ArgumentNullException
         if (string.IsNullOrEmpty(textureStr))
         {
-            Debug.LogWarning("[ImageTypeManager] 图像数据为空，返回 null");
             return null;
         }
 
@@ -42,7 +41,6 @@ public class ImageTypeManager
         }
         catch (FormatException ex)
         {
-            Debug.LogError($"[ImageTypeManager] 无效的 Base64 图像数据: {ex.Message}");
             return null;
         }
     }

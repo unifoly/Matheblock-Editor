@@ -143,8 +143,11 @@ public class ChartSelect : MonoBehaviour
                 ? m_contentRect.localPosition.x + 1300 
                 : m_contentRect.localPosition.x - 1300;
             
+            // SetLink：目标 RectTransform 销毁时自动终止 tween，
+            // 避免切换场景后仍对已销毁对象写入 localPosition 触发 DOTween 警告
             m_contentRect.DOLocalMove(
-                new Vector3(targetX, m_contentRect.localPosition.y, m_contentRect.localPosition.z), 2);
+                new Vector3(targetX, m_contentRect.localPosition.y, m_contentRect.localPosition.z), 2)
+                .SetLink(m_contentRect.gameObject);
             
             m_isClicked = !m_isClicked;
             m_isExecute = true;

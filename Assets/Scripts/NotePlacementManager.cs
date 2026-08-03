@@ -1870,7 +1870,7 @@ public class NotePlacementManager : MonoBehaviour
             var jsonStr = JsonUtility.ToJson(data);
             File.WriteAllText(tmpPath, jsonStr);
         }
-        catch (Exception ex)
+        catch (Exception)
         {
         }
     }
@@ -1908,7 +1908,7 @@ public class NotePlacementManager : MonoBehaviour
                 }
             }
         }
-        catch (Exception ex)
+        catch (Exception)
         {
         }
     }

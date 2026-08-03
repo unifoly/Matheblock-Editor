@@ -443,7 +443,7 @@ public class InfoManagerUI : MonoBehaviour
             // 更新 PlayScreen 背景
             UpdatePlayScreenIllustration(destPath);
         }
-        catch (Exception ex)
+        catch (Exception)
         {
         }
     }
@@ -469,7 +469,7 @@ public class InfoManagerUI : MonoBehaviour
             // 重置为白色，避免 BuildPreviewArea 中设的暗色背景 tint 导致图片偏暗
             m_previewImage.color = Color.white;
         }
-        catch (Exception ex)
+        catch (Exception)
         {
         }
     }
@@ -493,7 +493,7 @@ public class InfoManagerUI : MonoBehaviour
                 new Rect(0, 0, blurred.width, blurred.height),
                 new Vector2(0.5f, 0.5f));
         }
-        catch (Exception ex)
+        catch (Exception)
         {
         }
     }
@@ -562,7 +562,7 @@ public class InfoManagerUI : MonoBehaviour
             // 记录初始状态（用于检测编辑变化）
             m_lastSavedState = CaptureCurrentInputs();
         }
-        catch (Exception ex)
+        catch (Exception)
         {
         }
     }
@@ -608,7 +608,7 @@ public class InfoManagerUI : MonoBehaviour
             var jsonStr = JsonUtility.ToJson(data);
             File.WriteAllText(tmpPath, jsonStr);
         }
-        catch (Exception ex)
+        catch (Exception)
         {
         }
     }

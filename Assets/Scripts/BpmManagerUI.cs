@@ -112,7 +112,7 @@ public class BpmManagerUI : MonoBehaviour
 
             PopulateCacheFromNodes(data.bpmNodes);
         }
-        catch (Exception ex)
+        catch (Exception)
         {
         }
     }
@@ -965,7 +965,7 @@ public class BpmManagerUI : MonoBehaviour
                 AddNode(node.time, node.bpm, isFirstNode: i == 0);
             }
         }
-        catch (Exception ex)
+        catch (Exception)
         {
         }
     }
@@ -1025,7 +1025,7 @@ public class BpmManagerUI : MonoBehaviour
             PopulateCacheFromNodes(data.bpmNodes);
             NotifyGridRefresh();
         }
-        catch (Exception ex)
+        catch (Exception)
         {
         }
     }

@@ -283,7 +283,7 @@ public class PlaybackModeController : MonoBehaviour
             var data = JsonUtility.FromJson<PlaybackChartData>(json);
             return data?.info?.offset != null ? data.info.offset / 1000f : 0f;
         }
-        catch (System.Exception ex)
+        catch (System.Exception)
         {
             return 0f;
         }

@@ -90,7 +90,7 @@ namespace RuntimePlayback
 
                 return true;
             }
-            catch (System.Exception ex)
+            catch (System.Exception)
             {
                 return false;
             }
@@ -120,7 +120,7 @@ namespace RuntimePlayback
                     }
                 }
             }
-            catch (System.Exception ex)
+            catch (System.Exception)
             {
             }
         }

@@ -455,7 +455,7 @@ public class CubeManager : MonoBehaviour
             string jsonStr = JsonUtility.ToJson(data, true);
             File.WriteAllText(tmpPath, jsonStr);
         }
-        catch (Exception ex)
+        catch (Exception)
         {
         }
     }
@@ -517,7 +517,7 @@ public class CubeManager : MonoBehaviour
                 m_activeCubeId = m_cubes[0].cubeId;
             }
         }
-        catch (Exception ex)
+        catch (Exception)
         {
         }
     }

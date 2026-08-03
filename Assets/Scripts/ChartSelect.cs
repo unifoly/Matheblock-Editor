@@ -94,7 +94,7 @@ public class ChartSelect : MonoBehaviour
                     Sprite.Create(tex, new Rect(0, 0, tex.width, tex.height), new Vector2(0.5f, 0.5f));
             }
         }
-        catch (Exception ex)
+        catch (Exception)
         {
         }
 
@@ -119,7 +119,7 @@ public class ChartSelect : MonoBehaviour
             chartButton.transform.GetChild(1).GetComponent<TextMeshProUGUI>().text =
                 $"{data.info.MusicName}\n \n{data.info.Charter}";
         }
-        catch (Exception ex)
+        catch (Exception)
         {
             Destroy(chartButton.gameObject);
             return;
@@ -210,7 +210,7 @@ public class ChartSelect : MonoBehaviour
             File.Copy(musicPath, Path.Combine(chartPath, "music.mp3"));
             File.Copy(illustrationPath, Path.Combine(chartPath, "illustration.png"));
         }
-        catch (Exception ex)
+        catch (Exception)
         {
             Directory.Delete(chartPath, true);
             return;
@@ -233,7 +233,7 @@ public class ChartSelect : MonoBehaviour
         {
             File.WriteAllText(Path.Combine(chartPath, "chart.json"), json);
         }
-        catch (Exception ex)
+        catch (Exception)
         {
             Directory.Delete(chartPath, true);
             return;

@@ -491,7 +491,7 @@ namespace HexMap
                     File.Delete(FilePath);
                 }
             }
-            catch (Exception ex)
+            catch (Exception)
             {
             }
 
@@ -544,7 +544,7 @@ namespace HexMap
                     }
                 }
             }
-            catch (Exception ex)
+            catch (Exception)
             {
             }
         }
@@ -602,7 +602,7 @@ namespace HexMap
                 string json = JsonUtility.ToJson(data, prettyPrint: true);
                 File.WriteAllText(FilePath, json);
             }
-            catch (Exception ex)
+            catch (Exception)
             {
             }
         }

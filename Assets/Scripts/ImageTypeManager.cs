@@ -39,7 +39,7 @@ public class ImageTypeManager
             DestroyTex(tex);
             return null;
         }
-        catch (FormatException ex)
+        catch (FormatException)
         {
             return null;
         }

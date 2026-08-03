@@ -81,7 +81,7 @@ namespace HexMap
             {
                 Load();
             }
-            catch (Exception ex)
+            catch (Exception)
             {
             }
         }
@@ -130,7 +130,7 @@ namespace HexMap
                     FakeNoteMode = Mathf.Clamp(data.fakeNoteMode, FakeNoteModeToggle, FakeNoteModeHold);
                 }
             }
-            catch (Exception ex)
+            catch (Exception)
             {
             }
         }
@@ -182,7 +182,7 @@ namespace HexMap
                 string json = JsonUtility.ToJson(data, prettyPrint: true);
                 File.WriteAllText(FilePath, json);
             }
-            catch (Exception ex)
+            catch (Exception)
             {
             }
         }

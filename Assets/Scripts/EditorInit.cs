@@ -175,7 +175,7 @@ public class EditorInit : MonoBehaviour
                 File.WriteAllText(tmpPath, "{}");
             }
         }
-        catch (Exception ex)
+        catch (Exception)
         {
         }
     }
@@ -221,7 +221,7 @@ public class EditorInit : MonoBehaviour
                 File.Copy(tmpPath, jsonPath, overwrite: true);
             }
         }
-        catch (Exception ex)
+        catch (Exception)
         {
         }
     }
@@ -266,7 +266,7 @@ public class EditorInit : MonoBehaviour
                 blurObj.gameObject.SetActive(false);
             }
         }
-        catch (Exception ex)
+        catch (Exception)
         {
         }
     }

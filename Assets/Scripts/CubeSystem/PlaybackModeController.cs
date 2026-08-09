@@ -79,6 +79,8 @@ public class PlaybackModeController : MonoBehaviour
     private const string k_comboFontAssetPath = "Assets/Fonts/combo SDF.asset";
     // combo 源字体文件路径（combo SDF 资产图集为空时的回退）
     private const string k_comboSourceFontPath = "Assets/Fonts/combo.ttf";
+    // combo 源字体在 Resources 中的路径（构建环境无法访问 Assets 目录，需走 Resources）
+    private const string k_comboFontResourcePath = "Fonts/combo";
 
     // 数字行与 COMBO 标签行的显示名称
     private const string k_comboNumberName = "ComboNumber";
@@ -1003,8 +1005,8 @@ public class PlaybackModeController : MonoBehaviour
     }
 
     /// <summary>
-    /// 获取 combo SDF 字体资源（优先加载项目中已有的 combo SDF 资产；
-    /// 资产图集无效时回退为从源字体重新创建，确保显示正常）
+    /// 获取 combo SDF 字体资源（编辑器下优先加载项目中已有的 combo SDF 资产；
+    /// 资产缺失或构建环境下回退为从 Resources 源字体动态创建，确保打包后字体仍生效）
     /// </summary>
     private TMP_FontAsset GetComboFont()
     {
@@ -1022,8 +1024,20 @@ public class PlaybackModeController : MonoBehaviour
                 asset = TMP_FontAsset.CreateFontAsset(sourceFont);
             }
         }
-        m_comboFont = asset;
+        if (asset != null)
+        {
+            m_comboFont = asset;
+            return m_comboFont;
+        }
 #endif
+
+        // 编辑器下资产缺失或构建环境（#if UNITY_EDITOR 代码被剔除，Assets 路径不可用）：
+        // 从 Resources 源字体动态创建字体资产，避免打包后 combo 字体回退为默认字体
+        var buildFont = Resources.Load<Font>(k_comboFontResourcePath);
+        if (buildFont != null)
+        {
+            m_comboFont = TMP_FontAsset.CreateFontAsset(buildFont);
+        }
 
         // 加载失败时返回 null，TMP 会回退到默认字体，不影响显示
         return m_comboFont;

@@ -205,7 +205,14 @@ namespace RuntimePlayback
 
             // 归还池前恢复为默认层级并挂回管理器，避免残留脏状态
             p.View.layer = LayerConstants.Default;
-            p.View.transform.SetParent(transform, false);
+
+            // 父级方体正在停用（OnDisable 期间）时禁止对其 SetParent，
+            // 跳过挂回，粒子随方体一起停用；下次复用 SpawnOne 会重新挂载
+            if (gameObject.activeInHierarchy)
+            {
+                p.View.transform.SetParent(transform, false);
+            }
+
             p.View.SetActive(false);
         }
 

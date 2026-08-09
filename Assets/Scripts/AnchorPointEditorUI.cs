@@ -44,7 +44,10 @@ public class AnchorPointEditorUI : MonoBehaviour
     // ---- UI 控件：缓动设置 ----
     private TMP_Dropdown m_easingDropdown;
     private Slider m_weightSlider;
-    private TextMeshProUGUI m_weightValueLabel;
+    private TMP_InputField m_weightInput;
+    private TextMeshProUGUI m_easingLabel;
+    private TextMeshProUGUI m_weightLabel;
+    private TextMeshProUGUI m_previewTitle;
 
     // ---- UI 控件：全局模式方体/轨道变更 ----
     private GameObject m_globalSection;
@@ -218,23 +221,26 @@ public class AnchorPointEditorUI : MonoBehaviour
 
         // ---- 缓动类型下拉 ----
         var easingLabel = CreateText("缓动:", m_panel.transform, 16f);
+        m_easingLabel = easingLabel;
         PositionElement(easingLabel.rectTransform, k_padding, yPos, 80, k_inputHeight);
         m_easingDropdown = CreateEasingDropdown(m_panel.transform);
         PositionElement(m_easingDropdown.GetComponent<RectTransform>(), k_padding + 80, yPos, k_inputWidth, k_inputHeight);
         yPos -= k_inputHeight + k_padding;
 
-        // ---- 缓动权重滑块 ----
+        // ---- 缓动权重滑块 + 直接输入 ----
         var weightLabel = CreateText("权重:", m_panel.transform, 16f);
+        m_weightLabel = weightLabel;
         PositionElement(weightLabel.rectTransform, k_padding, yPos, 80, k_inputHeight);
         m_weightSlider = CreateWeightSlider(m_panel.transform);
-        PositionElement(m_weightSlider.GetComponent<RectTransform>(), k_padding + 80, yPos, k_inputWidth - 50, k_inputHeight);
-        m_weightValueLabel = CreateText("1.00", m_panel.transform, 14f);
-        PositionElement(m_weightValueLabel.rectTransform, k_padding + 80 + k_inputWidth - 45, yPos, 45, k_inputHeight);
-        m_weightValueLabel.alignment = TextAlignmentOptions.Center;
+        PositionElement(m_weightSlider.GetComponent<RectTransform>(), k_padding + 80, yPos, k_inputWidth - 85, k_inputHeight);
+        m_weightInput = CreateValueInput(m_panel.transform, "输入权重");
+        PositionElement(m_weightInput.GetComponent<RectTransform>(), k_padding + 80 + (k_inputWidth - 85) + 5, yPos, 90, k_inputHeight);
+        m_weightInput.onEndEdit.AddListener(OnWeightInputEndEdit);
         yPos -= k_inputHeight + k_padding;
 
         // ---- 缓动曲线预览 ----
         var previewTitle = CreateText("曲线预览:", m_panel.transform, 14f);
+        m_previewTitle = previewTitle;
         PositionElement(previewTitle.rectTransform, k_padding, yPos, k_panelWidth - k_padding * 2, 20);
         yPos -= 24;
         m_previewArea = CreatePreviewArea(m_panel.transform);
@@ -499,13 +505,34 @@ public class AnchorPointEditorUI : MonoBehaviour
 
         // 权重：SetValueWithoutNotify 避免打开面板时触发 OnWeightChanged 写盘
         m_weightSlider.SetValueWithoutNotify(bar.weight);
-        m_weightValueLabel.text = bar.weight.ToString("F2", CultureInfo.InvariantCulture);
+        m_weightInput.SetTextWithoutNotify(bar.weight.ToString("F2", CultureInfo.InvariantCulture));
+
+        // 瞬时赋值事件没有缓动类型：隐藏缓动/权重/曲线预览
+        bool showEasingControls = !bar.isInstant;
+        SetEasingControlsActive(showEasingControls);
 
         // 全局模式：显示方体/轨道变更区域
         UpdateGlobalSection();
 
-        // 刷新曲线预览
-        RefreshCurvePreview();
+        // 刷新曲线预览（瞬时事件无缓动曲线）
+        if (showEasingControls)
+        {
+            RefreshCurvePreview();
+        }
+    }
+
+    /// <summary>
+    /// 显示/隐藏缓动相关控件（瞬时赋值事件没有缓动类型）
+    /// </summary>
+    private void SetEasingControlsActive(bool active)
+    {
+        if (m_easingLabel != null) m_easingLabel.gameObject.SetActive(active);
+        if (m_easingDropdown != null) m_easingDropdown.gameObject.SetActive(active);
+        if (m_weightLabel != null) m_weightLabel.gameObject.SetActive(active);
+        if (m_weightSlider != null) m_weightSlider.gameObject.SetActive(active);
+        if (m_weightInput != null) m_weightInput.gameObject.SetActive(active);
+        if (m_previewTitle != null) m_previewTitle.gameObject.SetActive(active);
+        if (m_previewArea != null) m_previewArea.gameObject.SetActive(active);
     }
 
     /// <summary>
@@ -776,9 +803,35 @@ public class AnchorPointEditorUI : MonoBehaviour
     {
         if (m_easingAreaManager == null || !m_easingAreaManager.HasSelection) return;
 
-        m_weightValueLabel.text = value.ToString("F2", CultureInfo.InvariantCulture);
+        m_weightInput.SetTextWithoutNotify(value.ToString("F2", CultureInfo.InvariantCulture));
         m_easingAreaManager.UpdateSelectedBarWeight(value);
         RefreshCurvePreview();
+    }
+
+    /// <summary>
+    /// 权重输入框结束编辑：解析输入并更新权重（限制在滑块范围 0-2）
+    /// </summary>
+    private void OnWeightInputEndEdit(string text)
+    {
+        if (m_easingAreaManager == null || !m_easingAreaManager.HasSelection) return;
+
+        if (float.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out float value))
+        {
+            value = Mathf.Clamp(value, 0f, 2f);
+            m_easingAreaManager.UpdateSelectedBarWeight(value);
+            m_weightSlider.SetValueWithoutNotify(value);
+            m_weightInput.SetTextWithoutNotify(value.ToString("F2", CultureInfo.InvariantCulture));
+            RefreshCurvePreview();
+        }
+        else
+        {
+            // 输入无效：恢复当前权重
+            var bar = m_easingAreaManager.GetSelectedBar();
+            if (bar != null)
+            {
+                m_weightInput.SetTextWithoutNotify(bar.weight.ToString("F2", CultureInfo.InvariantCulture));
+            }
+        }
     }
 
     #endregion
@@ -794,6 +847,9 @@ public class AnchorPointEditorUI : MonoBehaviour
 
         var bar = m_easingAreaManager?.GetSelectedBar();
         if (bar == null) return;
+
+        // 瞬时赋值事件没有缓动类型，无需绘制曲线
+        if (bar.isInstant) return;
 
         Ease ease = bar.easingType;
         float weight = bar.weight;
@@ -824,7 +880,7 @@ public class AnchorPointEditorUI : MonoBehaviour
         {
             float t = (float)s / k_previewSamples;
             float easedT = DOVirtual.EasedValue(0f, 1f, t, ease);
-            float weightedT = Mathf.Lerp(t, easedT, weight);
+            float weightedT = Mathf.LerpUnclamped(t, easedT, weight);
 
             float x = t * w;
             float y = weightedT * h;

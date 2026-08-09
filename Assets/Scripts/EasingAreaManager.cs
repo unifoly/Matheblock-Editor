@@ -101,6 +101,10 @@ public class EasingAreaManager : MonoBehaviour
     [Tooltip("全局事件区方体信息标签颜色")]
     [SerializeField] private Color m_globalInfoLabelColor = new Color(1f, 1f, 0.5f, 0.9f);
 
+    [Header("批量选择设置")]
+    [Tooltip("框选区域填充颜色")]
+    [SerializeField] private Color m_selectionBoxColor = new Color(0.3f, 0.8f, 1f, 0.2f);
+
     // ---- 事件 ----
     /// <summary>长条被选中时触发</summary>
     public event Action BarSelected;
@@ -128,8 +132,13 @@ public class EasingAreaManager : MonoBehaviour
     private GameObject m_pendingPreview;
 
     // ---- 选择状态 ----
+    // 主选中（编辑面板的操作对象；多选时对应多选集合中的某一项）
     private int m_selectedSlot = -1;
     private int m_selectedBarIndex = -1;
+    // 多选集合（普通模式）：所有选中的长条 (槽, 索引)，按选中顺序排列
+    private readonly List<(int slot, int index)> m_selectedBars = new();
+    // 多选集合（全局模式）：所有选中的全局事件索引，按选中顺序排列
+    private readonly List<int> m_globalSelectedSet = new();
 
     // ---- 待定长条状态（S 键两次确认） ----
     private bool m_isPendingBar;
@@ -150,6 +159,29 @@ public class EasingAreaManager : MonoBehaviour
     private Vector2 m_mouseDownPos;
     private float m_lastMouseX;
     private float m_easingScrollOffset;
+
+    // ---- 框选状态 ----
+    private GameObject m_selectionBoxVisual;
+    private bool m_isBoxSelecting;
+    // 按下时的 EasingContent 本地坐标（用于框选矩形）
+    private Vector2 m_mouseDownContentPos;
+
+    // ---- 长条移动状态 ----
+    // 按下时命中的长条（未命中为 -1，用于区分拖拽移动/滚动）
+    private int m_mouseDownBarSlot = -1;
+    private int m_mouseDownBarIndex = -1;
+    private int m_mouseDownGlobalIndex = -1;
+    // 正在移动的长条
+    private bool m_isDraggingBar;
+    private int m_dragBarSlot = -1;
+    private int m_dragBarIndex = -1;
+    private int m_dragGlobalIndex = -1;
+    // 拖动起始时的吸附时间与原始时间（用于计算位移与撤销恢复）
+    private float m_dragStartSnapTime;
+    private float m_dragOriginalStartTime;
+    private float m_dragOriginalEndTime;
+    // 当前已应用的位移（拍）
+    private float m_dragOffset;
 
     // ---- 内容总宽度与最大滚动范围 ----
     private float m_contentWidth;
@@ -181,6 +213,7 @@ public class EasingAreaManager : MonoBehaviour
         CacheGridManager();
         CacheCubeManager();
         CreateEasingArea();
+        CreateSelectionBox();
         m_needInitialRebuild = true;
     }
 
@@ -302,7 +335,7 @@ public class EasingAreaManager : MonoBehaviour
                 HandleGlobalBarCreation();
             }
 
-            if (m_deleteCombo.IsPressed() && m_globalSelectedIndex >= 0)
+            if (m_deleteCombo.IsPressed() && HasSelection)
             {
                 DeleteSelectedBar();
             }
@@ -313,7 +346,7 @@ public class EasingAreaManager : MonoBehaviour
                 {
                     CancelPendingBar();
                 }
-                else if (m_globalSelectedIndex >= 0)
+                else if (HasSelection)
                 {
                     DeselectBar();
                 }
@@ -488,6 +521,33 @@ public class EasingAreaManager : MonoBehaviour
     }
 
     /// <summary>
+    /// 创建框选视觉对象（半透明矩形，拖拽时显示）。
+    /// 挂在 EasingContent 顶层，普通模式与全局事件区模式通用。
+    /// </summary>
+    private void CreateSelectionBox()
+    {
+        if (m_selectionBoxVisual != null || m_easingContent == null) return;
+
+        m_selectionBoxVisual = new GameObject("SelectionBox", typeof(RectTransform));
+        m_selectionBoxVisual.transform.SetParent(m_easingContent, false);
+        m_selectionBoxVisual.layer = LayerConstants.Ui;
+
+        var rect = m_selectionBoxVisual.GetComponent<RectTransform>();
+        // 与长条相同的锚点约定（左中），保证本地坐标一致
+        rect.anchorMin = new Vector2(0, 0.5f);
+        rect.anchorMax = new Vector2(0, 0.5f);
+        rect.pivot = new Vector2(0.5f, 0.5f);
+        rect.sizeDelta = Vector2.zero;
+
+        var img = m_selectionBoxVisual.AddComponent<Image>();
+        img.color = m_selectionBoxColor;
+        img.raycastTarget = false;
+
+        m_selectionBoxVisual.transform.SetAsLastSibling();
+        m_selectionBoxVisual.SetActive(false);
+    }
+
+    /// <summary>
     /// 绘制 15 条竖线及对应标签
     /// </summary>
     private void DrawVerticalLines()
@@ -620,13 +680,7 @@ public class EasingAreaManager : MonoBehaviour
 
         if (!m_isPendingBar)
         {
-            // time=0 已有初始瞬时事件，不允许在此创建
-            if (Mathf.Approximately(snappedTime, 0f))
-            {
-                return;
-            }
-
-            // 第一次按下：记录起点
+            // 第一次按下：记录起点（允许从 t=0 开始创建长时事件）
             m_isPendingBar = true;
             m_pendingBarSlot = slot;
             m_pendingBarStartTime = snappedTime;
@@ -648,6 +702,8 @@ public class EasingAreaManager : MonoBehaviour
             if (Mathf.Approximately(startTime, endTime))
             {
                 CancelPendingBar();
+                // t=0 处已有初始瞬时事件，不允许再创建瞬时事件（只允许长时事件）
+                if (Mathf.Approximately(startTime, 0f)) return;
                 AddInstantBar(slot, startTime);
                 return;
             }
@@ -785,8 +841,8 @@ public class EasingAreaManager : MonoBehaviour
     #region 鼠标交互
 
     /// <summary>
-    /// 处理鼠标交互：区分点击与拖拽。
-    /// 点击长条 -> 选中；拖拽 -> 水平滚动。
+    /// 处理鼠标交互：区分点击、框选、移动与拖拽。
+    /// 点击长条 -> 选中；Shift+拖拽 -> 框选；长条上拖拽 -> 上下移动；空白拖拽 -> 水平滚动。
     /// </summary>
     private void HandleMouseInteraction()
     {
@@ -798,19 +854,75 @@ public class EasingAreaManager : MonoBehaviour
             m_easingViewport, Input.mousePosition, null, out viewportLocal);
         bool inEasingArea = m_easingViewport.rect.Contains(viewportLocal);
 
-        // 鼠标按下
+        // 鼠标按下：记录起点与命中的长条
         if (Input.GetMouseButtonDown(0) && inEasingArea)
         {
             m_isDragging = true;
             m_isPotentialClick = true;
             m_mouseDownPos = Input.mousePosition;
             m_lastMouseX = Input.mousePosition.x;
+            m_mouseDownContentPos = ScreenToContentLocal();
+            RecordMouseDownBarHit(m_mouseDownContentPos);
         }
 
-        // 鼠标抬起：判定点击 vs 拖拽
+        // 按住：超过阈值后，Shift+拖拽进入框选，长条上拖拽进入移动，空白拖拽保持水平滚动
+        if (m_isPotentialClick && Input.GetMouseButton(0) && !m_isBoxSelecting && !m_isDraggingBar)
+        {
+            float dragDist = Vector2.Distance(Input.mousePosition, m_mouseDownPos);
+            if (dragDist > k_clickThreshold)
+            {
+                if (IsShiftHeld())
+                {
+                    // Shift+拖拽 -> 框选
+                    m_isBoxSelecting = true;
+                    if (m_selectionBoxVisual != null)
+                    {
+                        m_selectionBoxVisual.SetActive(true);
+                    }
+                }
+                else if (HasMovableMouseDownBarHit())
+                {
+                    // 长条上拖拽 -> 上下移动
+                    BeginBarDrag();
+                }
+                else
+                {
+                    // 空白拖拽 -> 取消点击意图，走水平滚动
+                    m_isPotentialClick = false;
+                }
+            }
+        }
+
+        // 框选进行中：更新矩形视觉
+        if (m_isBoxSelecting)
+        {
+            UpdateSelectionBox(ScreenToContentLocal());
+        }
+
+        // 长条移动中：实时更新位移
+        if (m_isDraggingBar)
+        {
+            UpdateBarDrag(ScreenToContentLocal());
+        }
+
+        // 鼠标抬起：判定点击 / 框选 / 移动提交
         if (Input.GetMouseButtonUp(0))
         {
-            if (m_isPotentialClick && inEasingArea)
+            if (m_isBoxSelecting)
+            {
+                bool additive = IsCtrlHeld();
+                FinalizeBoxSelection(ScreenToContentLocal(), additive);
+                m_isBoxSelecting = false;
+                if (m_selectionBoxVisual != null)
+                {
+                    m_selectionBoxVisual.SetActive(false);
+                }
+            }
+            else if (m_isDraggingBar)
+            {
+                EndBarDrag();
+            }
+            else if (m_isPotentialClick && inEasingArea)
             {
                 HandleClick();
             }
@@ -818,21 +930,575 @@ public class EasingAreaManager : MonoBehaviour
             m_isPotentialClick = false;
         }
 
-        if (!m_isDragging) return;
+        if (!m_isDragging || m_isBoxSelecting || m_isDraggingBar) return;
 
-        // 拖拽中：超过阈值则取消点击意图
+        // 拖拽中（空白处按下）：水平滚动
         float delta = Input.mousePosition.x - m_lastMouseX;
-        if (m_isPotentialClick && Mathf.Abs(Input.mousePosition.x - m_mouseDownPos.x) > k_clickThreshold)
-        {
-            m_isPotentialClick = false;
-        }
-
         if (!m_isPotentialClick)
         {
             ApplyScroll(-delta);
         }
 
         m_lastMouseX = Input.mousePosition.x;
+    }
+
+    /// <summary>
+    /// 记录鼠标按下时命中的长条（普通模式记录槽+索引，全局模式记录全局索引）
+    /// </summary>
+    private void RecordMouseDownBarHit(Vector2 contentLocal)
+    {
+        m_mouseDownBarSlot = -1;
+        m_mouseDownBarIndex = -1;
+        m_mouseDownGlobalIndex = -1;
+
+        if (m_isGlobalMode)
+        {
+            m_mouseDownGlobalIndex = FindGlobalBarAt(contentLocal);
+            return;
+        }
+
+        float startX = m_lineSpacing * 0.5f;
+        int slot = Mathf.FloorToInt((contentLocal.x - startX + m_lineSpacing * 0.5f) / m_lineSpacing);
+        slot = Mathf.Clamp(slot, 0, m_lineCount - 1);
+        m_mouseDownBarSlot = slot;
+        m_mouseDownBarIndex = FindBarAt(slot, LocalYToTime(contentLocal.y));
+    }
+
+    /// <summary>
+    /// 鼠标按下时是否命中长条
+    /// </summary>
+    private bool HasMouseDownBarHit()
+    {
+        if (m_isGlobalMode) return m_mouseDownGlobalIndex >= 0;
+        return m_mouseDownBarSlot >= 0 && m_mouseDownBarIndex >= 0;
+    }
+
+    /// <summary>
+    /// 鼠标按下时是否命中了可移动的长条。
+    /// t=0 的初始瞬时事件（初始值）不允许移动。
+    /// </summary>
+    private bool HasMovableMouseDownBarHit()
+    {
+        if (m_isGlobalMode)
+        {
+            if (m_mouseDownGlobalIndex < 0 || m_mouseDownGlobalIndex >= m_globalEvents.Count) return false;
+            var evt = m_globalEvents[m_mouseDownGlobalIndex];
+            if (evt.bar.isInstant && Mathf.Approximately(evt.bar.startTime, 0f)) return false;
+            return true;
+        }
+
+        if (m_mouseDownBarSlot < 0 || m_mouseDownBarIndex < 0) return false;
+        EasingSlotData slotData = GetSlotData(m_mouseDownBarSlot);
+        if (slotData == null || m_mouseDownBarIndex >= slotData.bars.Count) return false;
+        var bar = slotData.bars[m_mouseDownBarIndex];
+        if (bar.isInstant && Mathf.Approximately(bar.startTime, 0f)) return false;
+        return true;
+    }
+
+    /// <summary>
+    /// 将屏幕坐标转换为 EasingContent 本地坐标
+    /// </summary>
+    private Vector2 ScreenToContentLocal()
+    {
+        Vector2 contentLocal;
+        RectTransformUtility.ScreenPointToLocalPointInRectangle(
+            m_easingContent, Input.mousePosition, null, out contentLocal);
+        return contentLocal;
+    }
+
+    /// <summary>
+    /// 检测 Ctrl 是否按住（追加框选/切换选中）
+    /// </summary>
+    private static bool IsCtrlHeld()
+    {
+        return Input.GetKey(KeyCode.LeftControl) || Input.GetKey(KeyCode.RightControl);
+    }
+
+    /// <summary>
+    /// 检测 Shift 是否按住（框选）
+    /// </summary>
+    private static bool IsShiftHeld()
+    {
+        return Input.GetKey(KeyCode.LeftShift) || Input.GetKey(KeyCode.RightShift);
+    }
+
+    // ---- 框选 ----
+
+    /// <summary>
+    /// 更新框选矩形视觉位置（EasingContent 本地坐标）
+    /// </summary>
+    private void UpdateSelectionBox(Vector2 currentLocal)
+    {
+        if (m_selectionBoxVisual == null) return;
+
+        float minX = Mathf.Min(m_mouseDownContentPos.x, currentLocal.x);
+        float maxX = Mathf.Max(m_mouseDownContentPos.x, currentLocal.x);
+        float minY = Mathf.Min(m_mouseDownContentPos.y, currentLocal.y);
+        float maxY = Mathf.Max(m_mouseDownContentPos.y, currentLocal.y);
+
+        var rect = m_selectionBoxVisual.GetComponent<RectTransform>();
+        rect.anchoredPosition = new Vector2((minX + maxX) * 0.5f, (minY + maxY) * 0.5f);
+        rect.sizeDelta = new Vector2(maxX - minX, maxY - minY);
+    }
+
+    /// <summary>
+    /// 完成框选：选中矩形范围内的所有长条。
+    /// 非追加模式（未按 Ctrl）先清除已有选择；Shift+Ctrl+拖拽 为追加式框选。
+    /// </summary>
+    private void FinalizeBoxSelection(Vector2 currentLocal, bool additive)
+    {
+        float minX = Mathf.Min(m_mouseDownContentPos.x, currentLocal.x);
+        float maxX = Mathf.Max(m_mouseDownContentPos.x, currentLocal.x);
+        float minY = Mathf.Min(m_mouseDownContentPos.y, currentLocal.y);
+        float maxY = Mathf.Max(m_mouseDownContentPos.y, currentLocal.y);
+
+        if (!additive)
+        {
+            ClearSelection();
+        }
+
+        if (m_isGlobalMode)
+        {
+            FinalizeGlobalBoxSelection(minX, maxX, minY, maxY);
+        }
+        else
+        {
+            FinalizeNormalBoxSelection(minX, maxX, minY, maxY);
+        }
+    }
+
+    /// <summary>
+    /// 普通模式框选：选中矩形范围内的所有长条（按槽+时间判定）
+    /// </summary>
+    private void FinalizeNormalBoxSelection(float minX, float maxX, float minY, float maxY)
+    {
+        bool anySelected = false;
+
+        for (int slot = 0; slot < m_lineCount; slot++)
+        {
+            EasingSlotData slotData = GetSlotData(slot);
+            if (slotData == null || slotData.bars == null) continue;
+
+            for (int i = 0; i < slotData.bars.Count; i++)
+            {
+                var bar = slotData.bars[i];
+                if (!BarRectInBox(slot, bar, minX, maxX, minY, maxY)) continue;
+
+                // 追加模式（Ctrl）下可能重复命中已选中的长条，去重
+                if (m_selectedBars.Contains((slot, i))) continue;
+
+                m_selectedBars.Add((slot, i));
+                if (!anySelected)
+                {
+                    // 第一个命中的长条作为主选中（编辑面板操作对象）
+                    m_selectedSlot = slot;
+                    m_selectedBarIndex = i;
+                    anySelected = true;
+                }
+            }
+        }
+
+        UpdateBarColors();
+
+        if (anySelected)
+        {
+            BarSelected?.Invoke();
+        }
+    }
+
+    /// <summary>
+    /// 全局模式框选：选中矩形范围内的所有事件
+    /// </summary>
+    private void FinalizeGlobalBoxSelection(float minX, float maxX, float minY, float maxY)
+    {
+        bool anySelected = false;
+
+        for (int i = 0; i < m_globalEvents.Count; i++)
+        {
+            var evt = m_globalEvents[i];
+            if (!GlobalBarRectInBox(evt, minX, maxX, minY, maxY)) continue;
+
+            // 追加模式（Ctrl）下可能重复命中已选中的事件，去重
+            if (m_globalSelectedSet.Contains(i)) continue;
+
+            m_globalSelectedSet.Add(i);
+            if (!anySelected)
+            {
+                m_globalSelectedIndex = i;
+                anySelected = true;
+            }
+        }
+
+        UpdateGlobalBarColors();
+
+        if (anySelected)
+        {
+            BarSelected?.Invoke();
+        }
+    }
+
+    /// <summary>
+    /// 判断普通模式长条矩形是否与框选矩形相交（AABB）
+    /// </summary>
+    private bool BarRectInBox(int slot, EasingBar bar, float minX, float maxX, float minY, float maxY)
+    {
+        float slotCenter = m_lineSpacing * 0.5f + slot * m_lineSpacing;
+        float halfWidth = m_lineSpacing * m_barWidthRatio * 0.5f;
+
+        float startY = TimeToLocalY(bar.startTime);
+        float endY = TimeToLocalY(bar.endTime);
+        float centerY = (startY + endY) * 0.5f;
+        float halfHeight = Mathf.Max(
+            (bar.isInstant ? m_instantBarHeight : Mathf.Abs(endY - startY)) * 0.5f, 1f);
+
+        return slotCenter - halfWidth <= maxX
+               && slotCenter + halfWidth >= minX
+               && centerY - halfHeight <= maxY
+               && centerY + halfHeight >= minY;
+    }
+
+    /// <summary>
+    /// 判断全局事件长条矩形是否与框选矩形相交（AABB）
+    /// </summary>
+    private bool GlobalBarRectInBox(GlobalEventData evt, float minX, float maxX, float minY, float maxY)
+    {
+        float laneCenter = m_globalLaneWidth * 0.5f + evt.lane * m_globalLaneWidth;
+        float halfWidth = m_globalLaneWidth * m_barWidthRatio * 0.5f;
+
+        float startY = TimeToLocalY(evt.bar.startTime);
+        float endY = TimeToLocalY(evt.bar.endTime);
+        float centerY = (startY + endY) * 0.5f;
+        float halfHeight = Mathf.Max(
+            (evt.bar.isInstant ? m_globalInstantBarHeight : Mathf.Abs(endY - startY)) * 0.5f, 1f);
+
+        return laneCenter - halfWidth <= maxX
+               && laneCenter + halfWidth >= minX
+               && centerY - halfHeight <= maxY
+               && centerY + halfHeight >= minY;
+    }
+
+    // ---- 长条上下移动 ----
+
+    /// <summary>
+    /// 开始拖动长条（长条上按住拖拽，仅上下移动改变时间位置，不允许左右/跨槽移动）
+    /// </summary>
+    private void BeginBarDrag()
+    {
+        if (m_isGlobalMode)
+        {
+            if (m_mouseDownGlobalIndex < 0 || m_mouseDownGlobalIndex >= m_globalEvents.Count) return;
+            // t=0 的初始瞬时事件不允许移动
+            if (m_globalEvents[m_mouseDownGlobalIndex].bar.isInstant &&
+                Mathf.Approximately(m_globalEvents[m_mouseDownGlobalIndex].bar.startTime, 0f)) return;
+            m_dragGlobalIndex = m_mouseDownGlobalIndex;
+            m_dragOriginalStartTime = m_globalEvents[m_dragGlobalIndex].bar.startTime;
+            m_dragOriginalEndTime = m_globalEvents[m_dragGlobalIndex].bar.endTime;
+            SelectGlobalBar(m_dragGlobalIndex);
+        }
+        else
+        {
+            if (m_mouseDownBarSlot < 0 || m_mouseDownBarIndex < 0) return;
+            EasingSlotData slotData = GetSlotData(m_mouseDownBarSlot);
+            if (slotData == null || m_mouseDownBarIndex >= slotData.bars.Count) return;
+            // t=0 的初始瞬时事件不允许移动
+            var hitBar = slotData.bars[m_mouseDownBarIndex];
+            if (hitBar.isInstant && Mathf.Approximately(hitBar.startTime, 0f)) return;
+            m_dragBarSlot = m_mouseDownBarSlot;
+            m_dragBarIndex = m_mouseDownBarIndex;
+            m_dragOriginalStartTime = slotData.bars[m_dragBarIndex].startTime;
+            m_dragOriginalEndTime = slotData.bars[m_dragBarIndex].endTime;
+            SelectBar(m_dragBarSlot, m_dragBarIndex);
+        }
+
+        m_dragStartSnapTime = SnapToBeat(LocalYToTime(m_mouseDownContentPos.y));
+        m_dragOffset = 0f;
+        m_isDraggingBar = true;
+        m_isPotentialClick = false;
+    }
+
+    /// <summary>
+    /// 拖动中：计算按节拍吸附的位移并实时更新长条时间。
+    /// 目标位置与其他长条重叠时不应用（卡在最近合法位置）。
+    /// </summary>
+    private void UpdateBarDrag(Vector2 currentLocal)
+    {
+        if (!m_isDraggingBar) return;
+
+        float currentSnap = SnapToBeat(LocalYToTime(currentLocal.y));
+        float newOffset = currentSnap - m_dragStartSnapTime;
+        // 不允许移动到 time < 0 的位置
+        if (m_dragOriginalStartTime + newOffset < 0f)
+        {
+            newOffset = -m_dragOriginalStartTime;
+        }
+        if (Mathf.Approximately(newOffset, m_dragOffset)) return;
+
+        float newStart = m_dragOriginalStartTime + newOffset;
+        float newEnd = m_dragOriginalEndTime + newOffset;
+
+        if (m_isGlobalMode)
+        {
+            if (m_dragGlobalIndex < 0 || m_dragGlobalIndex >= m_globalEvents.Count) return;
+            var evt = m_globalEvents[m_dragGlobalIndex];
+            if (IsGlobalBarOverlapping(evt, m_dragGlobalIndex, newStart, newEnd)) return;
+            evt.bar.startTime = newStart;
+            evt.bar.endTime = newEnd;
+            m_dragOffset = newOffset;
+        }
+        else
+        {
+            EasingSlotData slotData = GetSlotData(m_dragBarSlot);
+            if (slotData == null || m_dragBarIndex < 0 || m_dragBarIndex >= slotData.bars.Count) return;
+            if (IsBarOverlapping(m_dragBarSlot, m_dragBarIndex, newStart, newEnd)) return;
+            slotData.bars[m_dragBarIndex].startTime = newStart;
+            slotData.bars[m_dragBarIndex].endTime = newEnd;
+            m_dragOffset = newOffset;
+        }
+    }
+
+    /// <summary>
+    /// 结束拖动：发生位移则重排序、写盘并注册撤回/重做
+    /// </summary>
+    private void EndBarDrag()
+    {
+        if (!m_isDraggingBar) return;
+        m_isDraggingBar = false;
+
+        if (Mathf.Approximately(m_dragOffset, 0f))
+        {
+            ResetBarDragState();
+            return;
+        }
+
+        if (m_isGlobalMode)
+        {
+            if (m_dragGlobalIndex < 0 || m_dragGlobalIndex >= m_globalEvents.Count)
+            {
+                ResetBarDragState();
+                return;
+            }
+            var evt = m_globalEvents[m_dragGlobalIndex];
+            var bar = evt.bar;
+            float finalStart = bar.startTime;
+            float finalEnd = bar.endTime;
+            float originalStart = m_dragOriginalStartTime;
+            float originalEnd = m_dragOriginalEndTime;
+
+            // t=0 长条被移走后，重新生成初始瞬时事件（undo 时回到 t=0 再移除）
+            bool t0Restored = false;
+            EasingSlotData t0SlotData = null;
+            if (Mathf.Approximately(originalStart, 0f) && finalStart > 0f)
+            {
+                t0SlotData = GetGlobalEventSlotData(evt);
+                if (t0SlotData != null)
+                {
+                    t0Restored = EnsureDefaultInstantEvent(t0SlotData, EasingSlotConfigs.Slots[evt.slotIndex]);
+                }
+            }
+
+            SaveCubeData();
+            CollectGlobalEvents();
+            AssignGlobalLanes();
+            RebuildGlobalBarVisuals();
+
+            // 重新选中移动后的长条（索引可能已变化）
+            for (int i = 0; i < m_globalEvents.Count; i++)
+            {
+                if (m_globalEvents[i].bar == bar)
+                {
+                    SelectGlobalBar(i);
+                    break;
+                }
+            }
+
+            var barRef = bar;
+            var t0Config = EasingSlotConfigs.Slots[evt.slotIndex];
+            UndoRedoManager.Execute(
+                undo: () =>
+                {
+                    barRef.startTime = originalStart;
+                    barRef.endTime = originalEnd;
+                    // 长条回到 t=0：移除自动生成的初始瞬时事件
+                    if (t0Restored && t0SlotData != null)
+                    {
+                        RemoveT0InstantEvent(t0SlotData);
+                    }
+                    SaveCubeData();
+                    CollectGlobalEvents();
+                    AssignGlobalLanes();
+                    RebuildGlobalBarVisuals();
+                },
+                redo: () =>
+                {
+                    barRef.startTime = finalStart;
+                    barRef.endTime = finalEnd;
+                    // 长条再次离开 t=0：重新生成初始瞬时事件
+                    if (t0Restored && t0SlotData != null)
+                    {
+                        EnsureDefaultInstantEvent(t0SlotData, t0Config);
+                    }
+                    SaveCubeData();
+                    CollectGlobalEvents();
+                    AssignGlobalLanes();
+                    RebuildGlobalBarVisuals();
+                });
+        }
+        else
+        {
+            EasingSlotData slotData = GetSlotData(m_dragBarSlot);
+            if (slotData == null || m_dragBarIndex < 0 || m_dragBarIndex >= slotData.bars.Count)
+            {
+                ResetBarDragState();
+                return;
+            }
+            var bar = slotData.bars[m_dragBarIndex];
+            float finalStart = bar.startTime;
+            float finalEnd = bar.endTime;
+            float originalStart = m_dragOriginalStartTime;
+            float originalEnd = m_dragOriginalEndTime;
+
+            // t=0 长条被移走后，重新生成初始瞬时事件（undo 时回到 t=0 再移除）
+            bool t0Restored = false;
+            var t0Config = EasingSlotConfigs.Slots[m_dragBarSlot];
+            if (Mathf.Approximately(originalStart, 0f) && finalStart > 0f)
+            {
+                t0Restored = EnsureDefaultInstantEvent(slotData, t0Config);
+            }
+
+            // 按起始时间重排序（列表顺序可能已乱）
+            ReinsertBarByRef(m_dragBarSlot, bar);
+
+            SaveCubeData();
+            RebuildBarVisuals();
+
+            // 重新选中移动后的长条（索引已变化）
+            int newIndex = GetSlotData(m_dragBarSlot).bars.IndexOf(bar);
+            if (newIndex >= 0)
+            {
+                SelectBar(m_dragBarSlot, newIndex);
+            }
+
+            var barRef = bar;
+            UndoRedoManager.Execute(
+                undo: () =>
+                {
+                    barRef.startTime = originalStart;
+                    barRef.endTime = originalEnd;
+                    ReinsertBarByRef(m_dragBarSlot, barRef);
+                    // 长条回到 t=0：移除自动生成的初始瞬时事件
+                    if (t0Restored)
+                    {
+                        RemoveT0InstantEvent(slotData);
+                    }
+                    SaveCubeData();
+                    RebuildBarVisuals();
+                },
+                redo: () =>
+                {
+                    barRef.startTime = finalStart;
+                    barRef.endTime = finalEnd;
+                    ReinsertBarByRef(m_dragBarSlot, barRef);
+                    // 长条再次离开 t=0：重新生成初始瞬时事件
+                    if (t0Restored)
+                    {
+                        EnsureDefaultInstantEvent(slotData, t0Config);
+                    }
+                    SaveCubeData();
+                    RebuildBarVisuals();
+                });
+        }
+
+        ResetBarDragState();
+    }
+
+    /// <summary>
+    /// 重置长条移动状态
+    /// </summary>
+    private void ResetBarDragState()
+    {
+        m_dragBarSlot = -1;
+        m_dragBarIndex = -1;
+        m_dragGlobalIndex = -1;
+        m_dragOffset = 0f;
+    }
+
+    /// <summary>
+    /// 将长条从所在槽列表中移除并按起始时间重新插入（保持有序）
+    /// </summary>
+    private void ReinsertBarByRef(int slot, EasingBar bar)
+    {
+        EasingSlotData slotData = GetSlotData(slot);
+        if (slotData == null) return;
+
+        int idx = slotData.bars.IndexOf(bar);
+        if (idx >= 0)
+        {
+            slotData.bars.RemoveAt(idx);
+        }
+        InsertBarByStartTime(slot, bar);
+    }
+
+    /// <summary>
+    /// 判断两个时间区间是否重叠。
+    /// 普通长条端点相接允许（半开区间）；涉及瞬时事件（零时长）时同一时刻视为重叠。
+    /// </summary>
+    private static bool BarsOverlap(float startA, float endA, float startB, float endB)
+    {
+        bool aInstant = Mathf.Approximately(endA - startA, 0f);
+        bool bInstant = Mathf.Approximately(endB - startB, 0f);
+
+        if (aInstant || bInstant)
+        {
+            return startA <= endB && startB <= endA;
+        }
+        return startA < endB && startB < endA;
+    }
+
+    /// <summary>
+    /// 判断目标时间范围是否与同槽其他长条重叠
+    /// </summary>
+    private bool IsBarOverlapping(int slot, int excludeIndex, float newStart, float newEnd)
+    {
+        EasingSlotData slotData = GetSlotData(slot);
+        if (slotData == null || slotData.bars == null) return false;
+
+        for (int i = 0; i < slotData.bars.Count; i++)
+        {
+            if (i == excludeIndex) continue;
+            var other = slotData.bars[i];
+            if (BarsOverlap(newStart, newEnd, other.startTime, other.endTime)) return true;
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// 判断两个全局事件是否属于同一条数据轨道（决定重叠判定的范围）。
+    /// 方体级事件按 方体+槽 判定；轨道级事件还需 面+方向 相同。
+    /// </summary>
+    private static bool IsSameGlobalTrack(GlobalEventData a, GlobalEventData b)
+    {
+        if (a.cubeId != b.cubeId || a.slotIndex != b.slotIndex) return false;
+        if (a.isTrackLevel != b.isTrackLevel) return false;
+        if (a.isTrackLevel)
+        {
+            return a.face == b.face && a.direction == b.direction;
+        }
+        return true;
+    }
+
+    /// <summary>
+    /// 判断目标时间范围是否与同一轨道的其他全局事件重叠
+    /// </summary>
+    private bool IsGlobalBarOverlapping(GlobalEventData evt, int excludeIndex, float newStart, float newEnd)
+    {
+        for (int i = 0; i < m_globalEvents.Count; i++)
+        {
+            if (i == excludeIndex) continue;
+            var other = m_globalEvents[i];
+            if (!IsSameGlobalTrack(evt, other)) continue;
+            if (BarsOverlap(newStart, newEnd, other.bar.startTime, other.bar.endTime)) return true;
+        }
+        return false;
     }
 
     /// <summary>
@@ -862,13 +1528,25 @@ public class EasingAreaManager : MonoBehaviour
 
         // 查找点击位置的长条
         int barIndex = FindBarAt(slot, time);
+        bool ctrl = IsCtrlHeld();
+
         if (barIndex >= 0)
         {
-            SelectBar(slot, barIndex);
+            if (ctrl)
+            {
+                // Ctrl+点击：切换该长条的选中状态
+                ToggleSelectBar(slot, barIndex);
+            }
+            else
+            {
+                // 无修饰键：单选
+                SelectBar(slot, barIndex);
+            }
         }
-        else
+        else if (!ctrl)
         {
-            DeselectBar();
+            // 点击空白：清除所有选择
+            ClearSelection();
         }
     }
 
@@ -917,6 +1595,7 @@ public class EasingAreaManager : MonoBehaviour
     /// <summary>
     /// 添加新长条，注册撤回/重做。
     /// 起始值和结束值默认为当前时间的插值结果（无长条则用配置默认值）。
+    /// 从 t=0 创建长条时，自动移除该槽 time=0 的初始瞬时事件（避免重叠）。
     /// </summary>
     private void AddBar(int slot, float startTime, float endTime)
     {
@@ -925,11 +1604,19 @@ public class EasingAreaManager : MonoBehaviour
 
         var config = EasingSlotConfigs.Slots[slot];
 
-        // 头尾数值默认为当前数值
+        // 头尾数值默认为当前数值（先于移除初始事件计算，保持从初始值接管）
         float startValue = slotData.EvaluateAt(startTime, config.defaultValue, config);
         float endValue = slotData.EvaluateAt(endTime, config.defaultValue, config);
 
         var bar = new EasingBar(startTime, endTime, startValue, endValue, Ease.Linear);
+
+        // 从 t=0 创建长条：移除 time=0 的初始瞬时事件，保存克隆供撤回恢复
+        EasingBar removedInitialBar = null;
+        if (Mathf.Approximately(startTime, 0f) && IsInitialInstantBar(slotData))
+        {
+            removedInitialBar = slotData.bars[0].Clone();
+            slotData.bars.RemoveAt(0);
+        }
 
         int insertIndex = InsertBarByStartTime(slot, bar);
 
@@ -943,12 +1630,22 @@ public class EasingAreaManager : MonoBehaviour
             undo: () =>
             {
                 RemoveBarAtIndex(slot, insertIndex);
+                // 恢复被移除的初始瞬时事件（保持其位于槽首）
+                if (removedInitialBar != null)
+                {
+                    slotData.bars.Insert(0, removedInitialBar.Clone());
+                }
                 SaveCubeData();
                 RebuildBarVisuals();
                 DeselectBar();
             },
             redo: () =>
             {
+                // 重新移除初始瞬时事件后插入长条
+                if (removedInitialBar != null && IsInitialInstantBar(slotData))
+                {
+                    slotData.bars.RemoveAt(0);
+                }
                 int idx = InsertBarByStartTime(slot, barClone.Clone());
                 SaveCubeData();
                 RebuildBarVisuals();
@@ -968,7 +1665,8 @@ public class EasingAreaManager : MonoBehaviour
         var config = EasingSlotConfigs.Slots[slot];
         float value = slotData.EvaluateAt(time, config.defaultValue, config);
 
-        var bar = new EasingBar(time, time, value, value, Ease.Linear, 1f, true);
+        // 瞬时赋值事件：同一格点赋值，没有缓动类型（Ease.Unset 表示无缓动）
+        var bar = new EasingBar(time, time, value, value, Ease.Unset, 1f, true);
 
         int insertIndex = InsertBarByStartTime(slot, bar);
 
@@ -996,10 +1694,12 @@ public class EasingAreaManager : MonoBehaviour
     }
 
     /// <summary>
-    /// 选中长条
+    /// 单选长条：清除其他选择并选中指定长条
     /// </summary>
     private void SelectBar(int slot, int barIndex)
     {
+        m_selectedBars.Clear();
+        m_selectedBars.Add((slot, barIndex));
         m_selectedSlot = slot;
         m_selectedBarIndex = barIndex;
         UpdateBarColors();
@@ -1007,89 +1707,180 @@ public class EasingAreaManager : MonoBehaviour
     }
 
     /// <summary>
-    /// 取消选中
+    /// 切换指定长条的选中状态（Ctrl+点击）
     /// </summary>
-    public void DeselectBar()
+    private void ToggleSelectBar(int slot, int barIndex)
     {
-        if (m_isGlobalMode)
+        var key = (slot, barIndex);
+        if (m_selectedBars.Remove(key))
         {
-            if (m_globalSelectedIndex < 0) return;
-            m_globalSelectedIndex = -1;
-            UpdateGlobalBarColors();
-            BarDeselected?.Invoke();
-            return;
+            // 取消选中：若移除的是主选中，则退到多选集合中最早选中的一项
+            if (m_selectedSlot == slot && m_selectedBarIndex == barIndex)
+            {
+                if (m_selectedBars.Count > 0)
+                {
+                    m_selectedSlot = m_selectedBars[0].slot;
+                    m_selectedBarIndex = m_selectedBars[0].index;
+                    BarSelected?.Invoke();
+                }
+                else
+                {
+                    m_selectedSlot = -1;
+                    m_selectedBarIndex = -1;
+                    BarDeselected?.Invoke();
+                }
+            }
+            UpdateBarColors();
         }
-
-        if (m_selectedSlot < 0) return;
-        m_selectedSlot = -1;
-        m_selectedBarIndex = -1;
-        UpdateBarColors();
-        BarDeselected?.Invoke();
+        else
+        {
+            m_selectedBars.Add(key);
+            m_selectedSlot = slot;
+            m_selectedBarIndex = barIndex;
+            UpdateBarColors();
+            BarSelected?.Invoke();
+        }
     }
 
     /// <summary>
-    /// 删除指定长条，注册撤回/重做。
+    /// 取消选中：清空普通模式与全局模式的所有选择
+    /// </summary>
+    public void DeselectBar()
+    {
+        ClearSelection();
+    }
+
+    /// <summary>
+    /// 清空所有选择（普通模式与全局模式），有选中时触发 BarDeselected
+    /// </summary>
+    private void ClearSelection()
+    {
+        bool hadSelection = m_selectedBars.Count > 0 || m_globalSelectedSet.Count > 0;
+        m_selectedBars.Clear();
+        m_globalSelectedSet.Clear();
+        m_selectedSlot = -1;
+        m_selectedBarIndex = -1;
+        m_globalSelectedIndex = -1;
+
+        if (hadSelection)
+        {
+            UpdateBarColors();
+            UpdateGlobalBarColors();
+            BarDeselected?.Invoke();
+        }
+    }
+
+    /// <summary>
+    /// 批量删除选中的长条，注册撤回/重做。
     /// time=0 处的瞬时事件（初始值）不可删除。
     /// </summary>
-    public void DeleteBar(int slot, int barIndex)
+    private void DeleteBars()
     {
-        EasingSlotData slotData = GetSlotData(slot);
-        if (slotData == null || barIndex < 0 || barIndex >= slotData.bars.Count) return;
+        if (m_selectedBars.Count == 0) return;
 
-        // 不允许删除 time=0 的瞬时事件（初始值）
-        var barToDelete = slotData.bars[barIndex];
-        if (barToDelete.isInstant && Mathf.Approximately(barToDelete.startTime, 0f))
+        // 收集可删除的长条（跳过 time=0 初始瞬时事件），保存克隆用于撤销恢复
+        var pending = new List<(int slot, int index, EasingBar clone)>();
+        foreach (var key in m_selectedBars)
         {
-            return;
+            EasingSlotData slotData = GetSlotData(key.slot);
+            if (slotData == null || key.index < 0 || key.index >= slotData.bars.Count) continue;
+
+            var bar = slotData.bars[key.index];
+            if (bar.isInstant && Mathf.Approximately(bar.startTime, 0f)) continue;
+
+            pending.Add((key.slot, key.index, bar.Clone()));
+        }
+        if (pending.Count == 0) return;
+
+        // 同一槽内按索引降序删除，避免删除导致索引偏移
+        pending.Sort((a, b) => a.slot != b.slot
+            ? a.slot.CompareTo(b.slot)
+            : b.index.CompareTo(a.index));
+
+        foreach (var p in pending)
+        {
+            EasingSlotData slotData = GetSlotData(p.slot);
+            if (slotData != null && p.index >= 0 && p.index < slotData.bars.Count)
+            {
+                slotData.bars.RemoveAt(p.index);
+            }
         }
 
-        // 捕获被删除的长条数据，用于撤回时恢复
-        var deletedBar = slotData.bars[barIndex].Clone();
+        // t=0 长条被删除后，重新生成初始瞬时事件（undo 时恢复长条再移除）
+        var restoredT0Slots = new List<int>();
+        foreach (var p in pending)
+        {
+            if (!Mathf.Approximately(p.clone.startTime, 0f)) continue;
+            EasingSlotData slotData = GetSlotData(p.slot);
+            if (slotData != null &&
+                EnsureDefaultInstantEvent(slotData, EasingSlotConfigs.Slots[p.slot]))
+            {
+                restoredT0Slots.Add(p.slot);
+            }
+        }
 
-        slotData.bars.RemoveAt(barIndex);
         SaveCubeData();
-
-        if (m_selectedSlot == slot && m_selectedBarIndex == barIndex)
-        {
-            DeselectBar();
-        }
-        else if (m_selectedSlot == slot && m_selectedBarIndex > barIndex)
-        {
-            m_selectedBarIndex--;
-        }
-
+        ClearSelection();
         RebuildBarVisuals();
 
         // 记录到全局撤回/重做系统
+        var snapshot = pending;
+        var restoredSnapshot = restoredT0Slots;
         UndoRedoManager.Execute(
             undo: () =>
             {
-                int idx = InsertBarByStartTime(slot, deletedBar.Clone());
+                foreach (var p in snapshot)
+                {
+                    EasingSlotData slotData = GetSlotData(p.slot);
+                    if (slotData == null) continue;
+                    int insertIdx = Mathf.Clamp(p.index, 0, slotData.bars.Count);
+                    slotData.bars.Insert(insertIdx, p.clone.Clone());
+                }
+                // 长条恢复后，移除自动生成的初始瞬时事件
+                foreach (var slot in restoredSnapshot)
+                {
+                    EasingSlotData slotData = GetSlotData(slot);
+                    if (slotData != null) RemoveT0InstantEvent(slotData);
+                }
                 SaveCubeData();
                 RebuildBarVisuals();
-                SelectBar(slot, idx);
             },
             redo: () =>
             {
-                RemoveBarAtIndex(slot, barIndex);
+                foreach (var p in snapshot)
+                {
+                    EasingSlotData slotData = GetSlotData(p.slot);
+                    if (slotData == null || p.index < 0 || p.index >= slotData.bars.Count) continue;
+                    slotData.bars.RemoveAt(p.index);
+                }
+                // 再次删除后重新生成初始瞬时事件
+                foreach (var slot in restoredSnapshot)
+                {
+                    EasingSlotData slotData = GetSlotData(slot);
+                    if (slotData != null) EnsureDefaultInstantEvent(slotData, EasingSlotConfigs.Slots[slot]);
+                }
                 SaveCubeData();
                 RebuildBarVisuals();
-                DeselectBar();
             });
     }
 
     /// <summary>
-    /// 删除当前选中的长条
+    /// 删除所有选中的长条
     /// </summary>
     public void DeleteSelectedBar()
     {
+        // 若正在拖动长条，先放弃移动
+        if (m_isDraggingBar)
+        {
+            ResetBarDragState();
+        }
+
         if (m_isGlobalMode)
         {
-            DeleteGlobalBar(m_globalSelectedIndex);
+            DeleteGlobalBars();
             return;
         }
-        if (m_selectedSlot < 0 || m_selectedBarIndex < 0) return;
-        DeleteBar(m_selectedSlot, m_selectedBarIndex);
+        DeleteBars();
     }
 
     /// <summary>
@@ -1164,6 +1955,9 @@ public class EasingAreaManager : MonoBehaviour
         EasingBar bar = GetSelectedBar();
         if (bar == null) return;
 
+        // 瞬时赋值事件没有缓动类型，忽略修改
+        if (bar.isInstant) return;
+
         bar.easingType = easingType;
         SaveCubeData();
     }
@@ -1212,10 +2006,13 @@ public class EasingAreaManager : MonoBehaviour
         return slotData.bars[m_selectedBarIndex];
     }
 
-    /// <summary>当前是否选中了长条</summary>
+    /// <summary>当前是否选中了长条（多选任意数量）</summary>
     public bool HasSelection => m_isGlobalMode
-        ? m_globalSelectedIndex >= 0
-        : (m_selectedSlot >= 0 && m_selectedBarIndex >= 0);
+        ? m_globalSelectedSet.Count > 0
+        : m_selectedBars.Count > 0;
+
+    /// <summary>当前选中的长条数量</summary>
+    public int SelectedCount => m_isGlobalMode ? m_globalSelectedSet.Count : m_selectedBars.Count;
 
     /// <summary>选中长条所在的数据槽索引</summary>
     public int SelectedSlot => m_isGlobalMode
@@ -1359,7 +2156,7 @@ public class EasingAreaManager : MonoBehaviour
                     var img = visual.GetComponent<Image>();
                     if (img != null)
                     {
-                        bool isSelected = (slot == m_selectedSlot && i == m_selectedBarIndex);
+                        bool isSelected = m_selectedBars.Contains((slot, i));
                         var bar = slotData.bars[i];
                         bool isTrackSlot = slot >= EasingSlotConfigs.CubeSlotCount;
 
@@ -1418,7 +2215,7 @@ public class EasingAreaManager : MonoBehaviour
                     float t = (float)s / m_curveSamples;
                     // 权重混合：weight=0 时线性，weight=1 时完整缓动
                     float easedT = DOVirtual.EasedValue(0f, 1f, t, bar.easingType);
-                    float weightedT = Mathf.Lerp(t, easedT, bar.weight);
+                    float weightedT = Mathf.LerpUnclamped(t, easedT, bar.weight);
                     float x = currX + (nextX - currX) * weightedT;
                     float y = currY + (nextY - currY) * t;
 
@@ -1614,8 +2411,30 @@ public class EasingAreaManager : MonoBehaviour
     }
 
     /// <summary>
+    /// 判断槽首是否为 time=0 的初始瞬时事件（初始值，不可删除的那条）
+    /// </summary>
+    private static bool IsInitialInstantBar(EasingSlotData slotData)
+    {
+        return slotData != null && slotData.bars != null && slotData.bars.Count > 0 &&
+               Mathf.Approximately(slotData.bars[0].startTime, 0f) &&
+               slotData.bars[0].isInstant;
+    }
+
+    /// <summary>
+    /// 移除槽内所有 time=0 的瞬时事件（槽内只可能存在初始瞬时事件，用户无法创建 t=0 瞬时事件）。
+    /// 返回是否移除了事件。
+    /// </summary>
+    private static bool RemoveT0InstantEvent(EasingSlotData slotData)
+    {
+        if (slotData == null || slotData.bars == null) return false;
+        int removed = slotData.bars.RemoveAll(b => b.isInstant && Mathf.Approximately(b.startTime, 0f));
+        return removed > 0;
+    }
+
+    /// <summary>
     /// 确保指定槽数据在 time=0 处有不可删除的瞬时事件（初始值）。
     /// 若不存在则插入，返回是否进行了修改。
+    /// 注意：槽首已存在 time=0 的长条时不插入，避免与长条重叠。
     /// </summary>
     private bool EnsureDefaultInstantEvent(EasingSlotData slotData, EasingSlotConfig config)
     {
@@ -1631,8 +2450,7 @@ public class EasingAreaManager : MonoBehaviour
         }
 
         if (slotData.bars.Count == 0 ||
-            !Mathf.Approximately(slotData.bars[0].startTime, 0f) ||
-            !slotData.bars[0].isInstant)
+            !Mathf.Approximately(slotData.bars[0].startTime, 0f))
         {
             slotData.bars.Insert(0, new EasingBar(0f, 0f, config.defaultValue, config.defaultValue,
                 Ease.Linear, 1f, true));
@@ -1659,6 +2477,8 @@ public class EasingAreaManager : MonoBehaviour
     {
         if (m_isGlobalMode)
         {
+            // 事件重建前清除选中，避免索引失效
+            ClearSelection();
             m_needGlobalRebuild = true;
             return;
         }
@@ -1675,6 +2495,8 @@ public class EasingAreaManager : MonoBehaviour
     {
         if (m_isGlobalMode)
         {
+            // 事件重建前清除选中，避免索引失效
+            ClearSelection();
             m_needGlobalRebuild = true;
             return;
         }
@@ -1888,7 +2710,8 @@ public class EasingAreaManager : MonoBehaviour
     {
         m_isGlobalMode = true;
 
-        // 取消选中与待定状态
+        // 取消选中、待定状态与拖动状态
+        ResetBarDragState();
         DeselectBar();
         CancelPendingBar();
 
@@ -1922,7 +2745,8 @@ public class EasingAreaManager : MonoBehaviour
     /// </summary>
     private void ExitGlobalMode()
     {
-        // 先取消全局选中与待定状态（此时 m_isGlobalMode 仍为 true）
+        // 先取消全局选中、待定状态与拖动状态（此时 m_isGlobalMode 仍为 true）
+        ResetBarDragState();
         DeselectBar();
         CancelPendingBar();
 
@@ -2324,13 +3148,25 @@ public class EasingAreaManager : MonoBehaviour
             m_easingContent, Input.mousePosition, null, out contentLocal);
 
         int clickedIndex = FindGlobalBarAt(contentLocal);
+        bool ctrl = IsCtrlHeld();
+
         if (clickedIndex >= 0)
         {
-            SelectGlobalBar(clickedIndex);
+            if (ctrl)
+            {
+                // Ctrl+点击：切换该长条的选中状态
+                ToggleSelectGlobalBar(clickedIndex);
+            }
+            else
+            {
+                // 无修饰键：单选
+                SelectGlobalBar(clickedIndex);
+            }
         }
-        else
+        else if (!ctrl)
         {
-            DeselectBar();
+            // 点击空白：清除所有选择
+            ClearSelection();
         }
     }
 
@@ -2365,13 +3201,47 @@ public class EasingAreaManager : MonoBehaviour
     }
 
     /// <summary>
-    /// 选中全局事件区长条
+    /// 单选全局事件区长条：清除其他选择并选中指定长条
     /// </summary>
     private void SelectGlobalBar(int index)
     {
+        m_globalSelectedSet.Clear();
+        m_globalSelectedSet.Add(index);
         m_globalSelectedIndex = index;
         UpdateGlobalBarColors();
         BarSelected?.Invoke();
+    }
+
+    /// <summary>
+    /// 切换指定全局事件区长条的选中状态（Ctrl+点击）
+    /// </summary>
+    private void ToggleSelectGlobalBar(int index)
+    {
+        if (m_globalSelectedSet.Remove(index))
+        {
+            // 取消选中：若移除的是主选中，则退到多选集合中最早选中的一项
+            if (m_globalSelectedIndex == index)
+            {
+                if (m_globalSelectedSet.Count > 0)
+                {
+                    m_globalSelectedIndex = m_globalSelectedSet[0];
+                    BarSelected?.Invoke();
+                }
+                else
+                {
+                    m_globalSelectedIndex = -1;
+                    BarDeselected?.Invoke();
+                }
+            }
+            UpdateGlobalBarColors();
+        }
+        else
+        {
+            m_globalSelectedSet.Add(index);
+            m_globalSelectedIndex = index;
+            UpdateGlobalBarColors();
+            BarSelected?.Invoke();
+        }
     }
 
     /// <summary>
@@ -2386,7 +3256,7 @@ public class EasingAreaManager : MonoBehaviour
             if (img == null) continue;
 
             var baseColor = GetGlobalBarColor(m_globalEvents[i]);
-            bool isSelected = (i == m_globalSelectedIndex);
+            bool isSelected = m_globalSelectedSet.Contains(i);
 
             img.color = isSelected
                 ? new Color(
@@ -2399,32 +3269,49 @@ public class EasingAreaManager : MonoBehaviour
     }
 
     /// <summary>
-    /// 删除全局事件区长条（从原始方体数据中移除）
+    /// 批量删除选中的全局事件区长条（从原始方体数据中移除）。
+    /// time=0 处的初始瞬时事件不可删除。
     /// </summary>
-    private void DeleteGlobalBar(int index)
+    private void DeleteGlobalBars()
     {
-        if (index < 0 || index >= m_globalEvents.Count) return;
+        if (m_globalSelectedSet.Count == 0) return;
 
-        var evt = m_globalEvents[index];
-
-        // 不允许删除 time=0 的初始瞬时事件
-        if (evt.bar.isInstant && Mathf.Approximately(evt.bar.startTime, 0f))
+        // 收集可删除的事件（跳过 time=0 初始瞬时事件）
+        var toDelete = new List<GlobalEventData>();
+        foreach (var index in m_globalSelectedSet)
         {
-            return;
+            if (index < 0 || index >= m_globalEvents.Count) continue;
+
+            var evt = m_globalEvents[index];
+            if (evt.bar.isInstant && Mathf.Approximately(evt.bar.startTime, 0f)) continue;
+
+            toDelete.Add(evt);
+        }
+        if (toDelete.Count == 0) return;
+
+        // 从各自原始槽数据中移除
+        foreach (var evt in toDelete)
+        {
+            var slotData = GetGlobalEventSlotData(evt);
+            if (slotData == null) continue;
+
+            int barIndex = slotData.bars.IndexOf(evt.bar);
+            if (barIndex < 0) continue;
+
+            slotData.bars.RemoveAt(barIndex);
         }
 
-        var slotData = GetGlobalEventSlotData(evt);
-        if (slotData == null) return;
-
-        int barIndex = slotData.bars.IndexOf(evt.bar);
-        if (barIndex < 0)
+        // t=0 长条被删除后，重新生成初始瞬时事件
+        foreach (var evt in toDelete)
         {
-            return;
+            if (evt.bar.isInstant || !Mathf.Approximately(evt.bar.startTime, 0f)) continue;
+            var slotData = GetGlobalEventSlotData(evt);
+            if (slotData == null) continue;
+            EnsureDefaultInstantEvent(slotData, EasingSlotConfigs.Slots[evt.slotIndex]);
         }
 
-        slotData.bars.RemoveAt(barIndex);
         SaveCubeData();
-        DeselectBar();
+        ClearSelection();
 
         // 重建全局事件区
         CollectGlobalEvents();
@@ -2457,11 +3344,7 @@ public class EasingAreaManager : MonoBehaviour
 
         if (!m_isPendingBar)
         {
-            if (Mathf.Approximately(snappedTime, 0f))
-            {
-                return;
-            }
-
+            // 第一次按下：记录起点（允许从 t=0 开始创建长时事件）
             m_isPendingBar = true;
             m_pendingBarStartTime = snappedTime;
             // 复用普通模式的 pendingBarSlot 存储创建信息（-1 表示全局模式）
@@ -2476,6 +3359,8 @@ public class EasingAreaManager : MonoBehaviour
             if (Mathf.Approximately(startTime, endTime))
             {
                 CancelPendingBar();
+                // t=0 处已有初始瞬时事件，不允许再创建瞬时事件（只允许长时事件）
+                if (Mathf.Approximately(startTime, 0f)) return;
                 AddGlobalBar(startTime, startTime, true);
                 return;
             }
@@ -2593,7 +3478,15 @@ public class EasingAreaManager : MonoBehaviour
         float startValue = slotData.EvaluateAt(startTime, config.defaultValue, config);
         float endValue = isInstant ? startValue : slotData.EvaluateAt(endTime, config.defaultValue, config);
 
-        var bar = new EasingBar(startTime, endTime, startValue, endValue, Ease.Linear, 1f, isInstant);
+        // 瞬时赋值事件：同一格点赋值，没有缓动类型（Ease.Unset 表示无缓动）
+        var bar = new EasingBar(startTime, endTime, startValue, endValue,
+            isInstant ? Ease.Unset : Ease.Linear, 1f, isInstant);
+
+        // 从 t=0 创建长条：移除 time=0 的初始瞬时事件（避免重叠）
+        if (!isInstant && Mathf.Approximately(startTime, 0f) && IsInitialInstantBar(slotData))
+        {
+            slotData.bars.RemoveAt(0);
+        }
 
         // 按起始时间插入
         int insertIndex = 0;

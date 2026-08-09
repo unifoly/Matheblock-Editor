@@ -47,7 +47,7 @@ namespace RuntimePlayback
 
                     // 权重混合：weight=0 时线性，weight=1 时完整缓动
                     float easedT = DOVirtual.EasedValue(0f, 1f, t, bar.easingType);
-                    float weightedT = Mathf.Lerp(t, easedT, bar.weight);
+                    float weightedT = Mathf.LerpUnclamped(t, easedT, bar.weight);
 
                     return Mathf.Lerp(bar.startValue, bar.endValue, weightedT);
                 }

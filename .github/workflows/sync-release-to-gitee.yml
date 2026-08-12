@@ -1,0 +1,103 @@
+name: Sync Release to Gitee
+
+# 当 GitHub Release 发布时，自动将构建产物同步到 Gitee Release
+# 需在 GitHub 仓库 Settings -> Secrets 中配置：
+#   GITEE_TOKEN  - Gitee 私人令牌（设置 -> 私人令牌 -> 生成）
+#   GITEE_OWNER  - Gitee 用户名
+#   GITEE_REPO   - Gitee 仓库名
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  sync-to-gitee:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create Gitee Release
+        id: create_release
+        env:
+          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+          GITEE_OWNER: ${{ secrets.GITEE_OWNER }}
+          GITEE_REPO: ${{ secrets.GITEE_REPO }}
+          TAG_NAME: ${{ github.event.release.tag_name }}
+          TARGET_COMMITISH: ${{ github.event.release.target_commitish }}
+          RELEASE_BODY: ${{ github.event.release.body }}
+        run: |
+          set -e
+
+          echo "正在 Gitee 创建 Release: ${TAG_NAME}"
+
+          # 转义 Release Body 中的特殊字符，安全嵌入 JSON
+          ESCAPED_BODY=$(printf '%s' "$RELEASE_BODY" | jq -Rs .)
+
+          # 在 Gitee 创建 Release
+          RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
+            "https://gitee.com/api/v5/repos/${GITEE_OWNER}/${GITEE_REPO}/releases" \
+            -H "Content-Type: application/json" \
+            -d "{
+              \"access_token\": \"${GITEE_TOKEN}\",
+              \"tag_name\": \"${TAG_NAME}\",
+              \"name\": \"${TAG_NAME}\",
+              \"body\": ${ESCAPED_BODY},
+              \"target_commitish\": \"${TARGET_COMMITISH}\"
+            }")
+
+          HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
+          BODY=$(echo "$RESPONSE" | sed '$d')
+
+          if [ "$HTTP_CODE" != "201" ] && [ "$HTTP_CODE" != "200" ]; then
+            echo "创建 Gitee Release 失败 (HTTP ${HTTP_CODE})"
+            echo "$BODY"
+            exit 1
+          fi
+
+          # 提取 Gitee Release ID
+          RELEASE_ID=$(echo "$BODY" | jq -r '.id')
+          echo "Gitee Release 创建成功，ID: ${RELEASE_ID}"
+          echo "release_id=${RELEASE_ID}" >> $GITHUB_OUTPUT
+
+      - name: Download GitHub Release Assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -e
+
+          mkdir -p /tmp/assets
+
+          # 使用 gh CLI 下载所有 Release Assets
+          gh release download "${{ github.event.release.tag_name }}" \
+            --dir /tmp/assets \
+            --clobber
+
+          echo "下载完成:"
+          ls -lh /tmp/assets/
+
+      - name: Upload Assets to Gitee Release
+        env:
+          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+          GITEE_OWNER: ${{ secrets.GITEE_OWNER }}
+          GITEE_REPO: ${{ secrets.GITEE_REPO }}
+          RELEASE_ID: ${{ steps.create_release.outputs.release_id }}
+        run: |
+          set -e
+
+          echo "正在上传构建产物到 Gitee Release (ID: ${RELEASE_ID})"
+
+          for FILEPATH in /tmp/assets/*; do
+            if [ -f "$FILEPATH" ]; then
+              FILENAME=$(basename "$FILEPATH")
+              echo "上传: ${FILENAME}"
+
+              curl -s -X POST \
+                "https://gitee.com/api/v5/repos/${GITEE_OWNER}/${GITEE_REPO}/releases/${RELEASE_ID}/attach_files" \
+                -H "Content-Type: multipart/form-data" \
+                -F "access_token=${GITEE_TOKEN}" \
+                -F "file=@${FILEPATH}" \
+
+              echo ""
+              echo "${FILENAME} 上传完成"
+            fi
+          done
+
+          echo "所有构建产物已同步到 Gitee"

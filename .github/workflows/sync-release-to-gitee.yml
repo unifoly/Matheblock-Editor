@@ -29,6 +29,7 @@ jobs:
         id: release_info
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
           EVENT_TAG: ${{ github.event.release.tag_name }}
           INPUT_TAG: ${{ inputs.tag }}
         run: |
@@ -40,7 +41,7 @@ jobs:
           elif [ -n "$EVENT_TAG" ]; then
             TAG="$EVENT_TAG"
           else
-            TAG=$(gh release list --limit 1 --json tagName --jq '.[0].tagName')
+            TAG=$(gh release list --repo "$REPO" --limit 1 --json tagName --jq '.[0].tagName')
           fi
 
           if [ -z "$TAG" ]; then
@@ -51,7 +52,7 @@ jobs:
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
 
           # 通过 gh CLI 获取 Release 详情
-          RELEASE_JSON=$(gh release view "$TAG" --json body,targetCommitish --jq '{body: .body, target: .targetCommitish}')
+          RELEASE_JSON=$(gh release view "$TAG" --repo "$REPO" --json body,targetCommitish --jq '{body: .body, target: .targetCommitish}')
           BODY=$(echo "$RELEASE_JSON" | jq -r '.body')
           TARGET=$(echo "$RELEASE_JSON" | jq -r '.target')
 
@@ -106,6 +107,7 @@ jobs:
       - name: Download GitHub Release Assets
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
           TAG_NAME: ${{ steps.release_info.outputs.tag }}
         run: |
           set -e
@@ -113,7 +115,7 @@ jobs:
           mkdir -p /tmp/assets
 
           # 使用 gh CLI 下载所有 Release Assets
-          gh release download "$TAG_NAME" \
+          gh release download "$TAG_NAME" --repo "$REPO" \
             --dir /tmp/assets \
             --clobber
 

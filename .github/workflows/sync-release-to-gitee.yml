@@ -24,7 +24,7 @@ jobs:
   sync-to-gitee:
     runs-on: ubuntu-latest
     steps:
-      # 统一解析要同步的 Release 信息（兼容自动触发和手动触发）
+      # 统一解析要同步的 Release 信息（兼容自动触发和手动触发，纯 curl + API，无 git 依赖）
       - name: Resolve Release Info
         id: release_info
         env:
@@ -35,31 +35,73 @@ jobs:
         run: |
           set -e
 
+          OWNER="${REPO%/*}"
+          echo "仓库: ${REPO}"
+
           # 确定 Tag：手动输入 > 自动触发事件 > 最新 Release
           if [ -n "$INPUT_TAG" ]; then
             TAG="$INPUT_TAG"
           elif [ -n "$EVENT_TAG" ]; then
             TAG="$EVENT_TAG"
           else
-            TAG=$(gh release list --repo "$REPO" --limit 1 --json tagName --jq '.[0].tagName')
+            LATEST_JSON=$(curl -s -H "Authorization: token ${GH_TOKEN}" -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/${REPO}/releases/latest")
+            TAG=$(echo "$LATEST_JSON" | jq -r '.tag_name')
           fi
 
-          if [ -z "$TAG" ]; then
+          if [ -z "$TAG" ] || [ "$TAG" = "null" ]; then
             echo "未找到可同步的 Release，请先创建 Release"
             exit 1
           fi
 
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
 
-          # 通过 gh CLI 获取 Release 详情
-          RELEASE_JSON=$(gh release view "$TAG" --repo "$REPO" --json body,targetCommitish --jq '{body: .body, target: .targetCommitish}')
-          BODY=$(echo "$RELEASE_JSON" | jq -r '.body')
-          TARGET=$(echo "$RELEASE_JSON" | jq -r '.target')
+          # 通过 GitHub API 获取 Release 详情（含 body、target、assets 下载地址）
+          RELEASE_JSON=$(curl -s -H "Authorization: token ${GH_TOKEN}" -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${REPO}/releases/tags/${TAG}")
 
+          # 校验 API 是否返回 Release（未认证可能触发限流返回 message）
+          if [ "$(echo "$RELEASE_JSON" | jq -r '.tag_name')" != "$TAG" ]; then
+            echo "获取 Release 信息失败:"
+            echo "$RELEASE_JSON"
+            exit 1
+          fi
+
+          BODY=$(echo "$RELEASE_JSON" | jq -r '.body // ""')
+          TARGET=$(echo "$RELEASE_JSON" | jq -r '.target_commitish')
           echo "body=${BODY}" >> "$GITHUB_OUTPUT"
           echo "target=${TARGET}" >> "$GITHUB_OUTPUT"
 
+          # 输出所有资产下载地址（每行一个），供下载步骤使用
+          echo "asset_urls<<EOF" >> "$GITHUB_OUTPUT"
+          echo "$RELEASE_JSON" | jq -r '.assets[]?.browser_download_url' >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+
           echo "将同步 Release: ${TAG} (target: ${TARGET})"
+
+      - name: Download GitHub Release Assets
+        env:
+          TAG_NAME: ${{ steps.release_info.outputs.tag }}
+          ASSET_URLS: ${{ steps.release_info.outputs.asset_urls }}
+        run: |
+          set -e
+
+          mkdir -p /tmp/assets
+
+          if [ -z "$ASSET_URLS" ]; then
+            echo "该 Release 没有构建产物，跳过下载"
+            touch /tmp/assets/.no_assets
+          else
+            echo "$ASSET_URLS" | while IFS= read -r URL; do
+              [ -z "$URL" ] && continue
+              FILENAME=$(basename "$URL")
+              echo "下载: ${FILENAME}"
+              curl -sL -o "/tmp/assets/${FILENAME}" "$URL"
+            done
+          fi
+
+          echo "下载完成:"
+          ls -lh /tmp/assets/
 
       - name: Create Gitee Release
         id: create_release
@@ -103,24 +145,6 @@ jobs:
           RELEASE_ID=$(echo "$BODY" | jq -r '.id')
           echo "Gitee Release 创建成功，ID: ${RELEASE_ID}"
           echo "release_id=${RELEASE_ID}" >> "$GITHUB_OUTPUT"
-
-      - name: Download GitHub Release Assets
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          REPO: ${{ github.repository }}
-          TAG_NAME: ${{ steps.release_info.outputs.tag }}
-        run: |
-          set -e
-
-          mkdir -p /tmp/assets
-
-          # 使用 gh CLI 下载所有 Release Assets
-          gh release download "$TAG_NAME" --repo "$REPO" \
-            --dir /tmp/assets \
-            --clobber
-
-          echo "下载完成:"
-          ls -lh /tmp/assets/
 
       - name: Upload Assets to Gitee Release
         env:

@@ -28,6 +28,11 @@ namespace HexMap
                  "示例: https://gitee.com/api/v5/repos/yourname/Matheblock-Editor/releases/latest")]
         [SerializeField] private string m_giteeApiUrl = string.Empty;
 
+        [Tooltip("Gitee 私人令牌（私有仓库必须填写，公开仓库可留空）\n" +
+                 "申请地址: https://gitee.com/profile/personal_access_tokens\n" +
+                 "注意: 令牌会随构建产物分发，请使用只读权限的令牌并定期更换")]
+        [SerializeField] private string m_giteeAccessToken = string.Empty;
+
         [Header("GitHub（备选）")]
         [Tooltip("GitHub Releases API 地址\n" +
                  "格式: https://api.github.com/repos/{用户名}/{仓库名}/releases/latest\n" +
@@ -139,7 +144,7 @@ namespace HexMap
             {
                 StatusTextChanged?.Invoke($"正在检查更新（{source.Name}）…");
 
-                using (var request = UnityWebRequest.Get(source.Url))
+                using (var request = UnityWebRequest.Get(BuildRequestUrl(source.Url)))
                 {
                     request.SetRequestHeader("User-Agent", $"{AppVersion.AppName}/{AppVersion.CurrentVersion}");
                     request.timeout = 15;
@@ -223,7 +228,7 @@ namespace HexMap
 
             var savePath = Path.Combine(saveDir, fileName);
 
-            using (var request = UnityWebRequest.Get(releaseInfo.DownloadUrl))
+            using (var request = UnityWebRequest.Get(BuildRequestUrl(releaseInfo.DownloadUrl)))
             {
                 request.SetRequestHeader("User-Agent", $"{AppVersion.AppName}/{AppVersion.CurrentVersion}");
                 request.timeout = (int)m_downloadTimeout;
@@ -261,6 +266,23 @@ namespace HexMap
                 DownloadProgressChanged?.Invoke(1f, (long)request.downloadedBytes, (long)request.downloadedBytes);
                 DownloadCompleted?.Invoke(savePath);
             }
+        }
+
+        /// <summary>
+        /// 为 Gitee URL 附加访问令牌（私有仓库必需），GitHub 无需附加
+        /// </summary>
+        private string BuildRequestUrl(string url)
+        {
+            // 仅对 Gitee 地址附加令牌；URL 为空或未配置令牌时原样返回
+            if (string.IsNullOrEmpty(url) || string.IsNullOrEmpty(m_giteeAccessToken) ||
+                !url.Contains("gitee.com", StringComparison.OrdinalIgnoreCase))
+            {
+                return url;
+            }
+
+            // URL 已带参数时用 & 拼接，否则用 ?
+            var separator = url.Contains('?') ? "&" : "?";
+            return $"{url}{separator}access_token={Uri.EscapeDataString(m_giteeAccessToken)}";
         }
 
         /// <summary>

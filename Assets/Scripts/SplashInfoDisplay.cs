@@ -17,6 +17,10 @@ namespace HexMap
         private const float k_fontSize = 16f;
         private const float k_maxWidth = 400f;
 
+        [Header("字体")]
+        [Tooltip("用于显示版本号与更新状态的中文字体（TMP Font Asset），留空时回退到 Resources/Fonts/black")]
+        [SerializeField] private TMP_FontAsset m_fontAsset;
+
         // --- 运行时组件 ---
         private TextMeshProUGUI m_infoText;
         private TMP_FontAsset m_font;
@@ -247,7 +251,8 @@ namespace HexMap
         }
 
         /// <summary>
-        /// 加载中文字体资源，失败时回退为 TMP 默认字体
+        /// 获取中文字体：优先使用 Inspector 配置的 TMP 字体资产，
+        /// 否则回退为从 Resources 加载动态字体（仅当未配置时）
         /// </summary>
         private TMP_FontAsset GetChineseFont()
         {
@@ -256,6 +261,14 @@ namespace HexMap
                 return m_font;
             }
 
+            // 优先使用 Inspector 中配置的 TMP 字体资产（推荐，字符集完整）
+            if (m_fontAsset != null)
+            {
+                m_font = m_fontAsset;
+                return m_font;
+            }
+
+            // 回退方案：从 Resources 加载源字体并动态创建 TMP 字体
             var sourceFont = Resources.Load<Font>("Fonts/black");
             if (sourceFont == null)
             {

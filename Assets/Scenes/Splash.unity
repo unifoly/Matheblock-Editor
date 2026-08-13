@@ -5015,6 +5015,7 @@ GameObject:
   m_Component:
   - component: {fileID: 1819890182}
   - component: {fileID: 1819890181}
+  - component: {fileID: 1819890183}
   m_Layer: 0
   m_Name: AutoUpdManager
   m_TagString: Untagged
@@ -5037,9 +5038,23 @@ MonoBehaviour:
   m_primarySource: 0
   m_fallbackToSecondary: 1
   m_giteeApiUrl: https://gitee.com/api/v5/repos/unifoly/Matheblock-Editor/releases/latest
+  m_giteeAccessToken: 19816c803c3a5c285b7859058e6931f4
   m_githubApiUrl: https://api.github.com/repos/unifoly/Matheblock-Editor/releases/latest
   m_downloadTimeout: 300
   m_checkOnStart: 1
+--- !u!114 &1819890183
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1819890180}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 523a228d881d14e44ac4e813521cfaea, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  m_fontAsset: {fileID: 11400000, guid: dcae9bc38f27ff74881ee70e7c41d98b, type: 2}
 --- !u!4 &1819890182
 Transform:
   m_ObjectHideFlags: 0

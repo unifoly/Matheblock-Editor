@@ -117,6 +117,11 @@ jobs:
 
           echo "正在 Gitee 创建 Release: ${TAG_NAME}"
 
+          # Gitee 不允许空描述；body 为空时使用默认描述
+          if [ -z "$RELEASE_BODY" ]; then
+            RELEASE_BODY="自动同步自 GitHub Release ${TAG_NAME}"
+          fi
+
           # 转义 Release Body 中的特殊字符，安全嵌入 JSON
           ESCAPED_BODY=$(printf '%s' "$RELEASE_BODY" | jq -Rs .)
 

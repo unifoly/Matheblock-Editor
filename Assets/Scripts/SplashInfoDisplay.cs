@@ -228,7 +228,8 @@ namespace HexMap
         }
 
         /// <summary>
-        /// 定位场景中的 Canvas：优先自身层级，其次场景内查找
+        /// 定位场景中的 Canvas：优先自身层级，其次场景内查找。
+        /// 注意：AutoUpdManager 会被 DontDestroyOnLoad 移入独立场景，因此不能比较 scene
         /// </summary>
         private Canvas GetCanvasInScene()
         {
@@ -238,10 +239,20 @@ namespace HexMap
                 return canvas;
             }
 
+            // 优先使用激活的 ScreenSpaceOverlay Canvas（Splash 场景常用）
             var canvases = FindObjectsOfType<Canvas>(true);
             foreach (var candidate in canvases)
             {
-                if (candidate.gameObject.scene == gameObject.scene)
+                if (candidate.isActiveAndEnabled && candidate.renderMode == RenderMode.ScreenSpaceOverlay)
+                {
+                    return candidate;
+                }
+            }
+
+            // 回退：任意激活的 Canvas
+            foreach (var candidate in canvases)
+            {
+                if (candidate.isActiveAndEnabled)
                 {
                     return candidate;
                 }

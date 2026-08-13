@@ -206,6 +206,14 @@ namespace HexMap
         {
             if (m_font == null || m_fontInitialized) return;
 
+            // 静态字体资产（AtlasPopulationMode=Static）运行期无法新增字形，
+            // 且配置的静态资产默认已包含完整字符集，直接跳过补字以免每次刷新都警告
+            if (m_font.atlasPopulationMode == AtlasPopulationMode.Static)
+            {
+                m_fontInitialized = true;
+                return;
+            }
+
             // 收集所有非富文本标签字符
             var chars = StripRichTextTags(text);
 

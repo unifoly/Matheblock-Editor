@@ -17,6 +17,9 @@ namespace HexMap
         private const float k_fontSize = 16f;
         private const float k_maxWidth = 400f;
 
+        // 显示文本中出现的固定字符（含中文字符与百分比符号），用于确保字体包含所需字形
+        private const string k_extraChars = "就绪正在检查更新…已是最新版本发现新版本，但暂无可下载的构建产物正在下载更新%下载完成，请重启以应用更新更新失败";
+
         [Header("字体")]
         [Tooltip("用于显示版本号与更新状态的中文字体（TMP Font Asset），留空时回退到 Resources/Fonts/black")]
         [SerializeField] private TMP_FontAsset m_fontAsset;
@@ -205,8 +208,18 @@ namespace HexMap
 
             // 收集所有非富文本标签字符
             var chars = StripRichTextTags(text);
-            m_font.TryAddCharacters(chars + $"v{AppVersion.CurrentVersion}就绪正在检查更新…已是最新版本发现新版本，但暂无可下载的构建产物正在下载更新%下载完成，请重启以应用更新更新失败");
-            m_fontInitialized = true;
+
+            // 附加当前版本号与远端最新版本号（远端版本号检查完成后才可用，可能含新字符）
+            chars += $"v{AppVersion.CurrentVersion}";
+            if (m_updateManager != null && !string.IsNullOrEmpty(m_updateManager.LatestVersion))
+            {
+                chars += m_updateManager.LatestVersion;
+            }
+
+            chars += k_extraChars;
+
+            // 全部字符成功加入后才视为初始化完成；若有缺字则保留重试机会（如远端版本号稍后才出现）
+            m_fontInitialized = m_font.TryAddCharacters(chars);
         }
 
         /// <summary>
@@ -228,8 +241,9 @@ namespace HexMap
         }
 
         /// <summary>
-        /// 定位场景中的 Canvas：优先自身层级，其次场景内查找。
-        /// 注意：AutoUpdManager 会被 DontDestroyOnLoad 移入独立场景，因此不能比较 scene
+        /// 定位场景中的 Canvas：优先自身层级，其次同场景 Canvas，再回退到任意激活的 Overlay Canvas。
+        /// 注意：AutoUpdManager 会被 DontDestroyOnLoad 移入独立场景，此时组件所在场景与 Splash 场景
+        /// 不一致，因此同场景匹配失效时需要按 Overlay 优先级回退查找
         /// </summary>
         private Canvas GetCanvasInScene()
         {
@@ -239,17 +253,35 @@ namespace HexMap
                 return canvas;
             }
 
-            // 优先使用激活的 ScreenSpaceOverlay Canvas（Splash 场景常用）
-            var canvases = FindObjectsOfType<Canvas>(true);
+            var canvases = FindObjectsByType<Canvas>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+
+            // 第一优先级：同场景的 Canvas；同时记录首个激活的 Overlay Canvas 作为回退
+            Canvas overlayFallback = null;
             foreach (var candidate in canvases)
             {
-                if (candidate.isActiveAndEnabled && candidate.renderMode == RenderMode.ScreenSpaceOverlay)
+                if (!candidate.isActiveAndEnabled)
+                {
+                    continue;
+                }
+
+                if (candidate.renderMode == RenderMode.ScreenSpaceOverlay && overlayFallback == null)
+                {
+                    overlayFallback = candidate;
+                }
+
+                if (candidate.gameObject.scene == gameObject.scene)
                 {
                     return candidate;
                 }
             }
 
-            // 回退：任意激活的 Canvas
+            // 回退：首个激活的 ScreenSpaceOverlay Canvas（Splash 场景常用）
+            if (overlayFallback != null)
+            {
+                return overlayFallback;
+            }
+
+            // 最终回退：任意激活的 Canvas
             foreach (var candidate in canvases)
             {
                 if (candidate.isActiveAndEnabled)

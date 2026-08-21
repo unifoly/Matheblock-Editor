@@ -39,6 +39,11 @@ namespace HexMap
                  "示例: https://api.github.com/repos/yourname/Matheblock-Editor/releases/latest")]
         [SerializeField] private string m_githubApiUrl = string.Empty;
 
+        [Tooltip("GitHub Personal Access Token（私有仓库必填，公开仓库可留空）\n" +
+                 "申请地址: https://github.com/settings/tokens\n" +
+                 "注意: 令牌会随构建产物分发，请使用只读权限的令牌并定期更换")]
+        [SerializeField] private string m_githubToken = string.Empty;
+
         [Header("通用配置")]
         [Tooltip("下载超时时间（秒）")]
         [SerializeField] private float m_downloadTimeout = 300f;
@@ -81,7 +86,9 @@ namespace HexMap
         {
             if (Instance != null && Instance != this)
             {
-                Destroy(gameObject);
+                // 仅销毁重复组件，保留 GameObject（同对象上可能挂有 SplashInfoDisplay 等场景组件，
+                // 整体销毁会导致从其他场景返回 Splash 时信息显示失效）
+                Destroy(this);
                 return;
             }
 
@@ -144,9 +151,10 @@ namespace HexMap
             {
                 StatusTextChanged?.Invoke($"正在检查更新（{source.Name}）…");
 
-                using (var request = UnityWebRequest.Get(BuildRequestUrl(source.Url)))
+                using (var request = UnityWebRequest.Get(source.Url))
                 {
                     request.SetRequestHeader("User-Agent", $"{AppVersion.AppName}/{AppVersion.CurrentVersion}");
+                    ApplyAuthorization(request, source.Url);
                     request.timeout = 15;
 
                     yield return request.SendWebRequest();
@@ -228,9 +236,10 @@ namespace HexMap
 
             var savePath = Path.Combine(saveDir, fileName);
 
-            using (var request = UnityWebRequest.Get(BuildRequestUrl(releaseInfo.DownloadUrl)))
+            using (var request = UnityWebRequest.Get(releaseInfo.DownloadUrl))
             {
                 request.SetRequestHeader("User-Agent", $"{AppVersion.AppName}/{AppVersion.CurrentVersion}");
+                ApplyAuthorization(request, releaseInfo.DownloadUrl);
                 request.timeout = (int)m_downloadTimeout;
 
                 var downloadHandler = new DownloadHandlerFile(savePath);
@@ -269,20 +278,30 @@ namespace HexMap
         }
 
         /// <summary>
-        /// 为 Gitee URL 附加访问令牌（私有仓库必需），GitHub 无需附加
+        /// 为私有仓库请求附加认证头。
+        /// Gitee: Authorization: token {私人令牌}（附件下载仅支持请求头，URL 参数会 403）
+        /// GitHub: Authorization: Bearer {PAT}（私有仓库 API 与附件下载均需认证）
         /// </summary>
-        private string BuildRequestUrl(string url)
+        private void ApplyAuthorization(UnityWebRequest request, string url)
         {
-            // 仅对 Gitee 地址附加令牌；URL 为空或未配置令牌时原样返回
-            if (string.IsNullOrEmpty(url) || string.IsNullOrEmpty(m_giteeAccessToken) ||
-                !url.Contains("gitee.com", StringComparison.OrdinalIgnoreCase))
+            if (string.IsNullOrEmpty(url))
             {
-                return url;
+                return;
             }
 
-            // URL 已带参数时用 & 拼接，否则用 ?
-            var separator = url.Contains('?') ? "&" : "?";
-            return $"{url}{separator}access_token={Uri.EscapeDataString(m_giteeAccessToken)}";
+            if (url.Contains("gitee.com", StringComparison.OrdinalIgnoreCase) &&
+                !string.IsNullOrEmpty(m_giteeAccessToken))
+            {
+                request.SetRequestHeader("Authorization", $"token {m_giteeAccessToken}");
+            }
+            else if (url.Contains("github.com", StringComparison.OrdinalIgnoreCase) ||
+                     url.Contains("githubusercontent.com", StringComparison.OrdinalIgnoreCase))
+            {
+                if (!string.IsNullOrEmpty(m_githubToken))
+                {
+                    request.SetRequestHeader("Authorization", $"Bearer {m_githubToken}");
+                }
+            }
         }
 
         /// <summary>
@@ -330,22 +349,41 @@ namespace HexMap
                 info.ReleaseNotes = ExtractJsonValue(json, "body");
 
                 // 提取 Release Assets 中的编译构建产物（browser_download_url）
-                // 注意：仅下载已上传的构建产物，不使用 zipball_url（那只是 Git 源码）
+                // 注意：跳过源码归档（Gitee 会附带 archive/refs/... 链接），仅取真实上传的构建产物
                 var assetsIndex = json.IndexOf("\"assets\"", StringComparison.OrdinalIgnoreCase);
                 if (assetsIndex >= 0)
                 {
-                    var urlStart = json.IndexOf("\"browser_download_url\"", assetsIndex, StringComparison.OrdinalIgnoreCase);
-                    if (urlStart >= 0)
+                    var searchIndex = assetsIndex;
+                    while (info.DownloadUrl == null)
                     {
-                        urlStart = json.IndexOf('"', urlStart + "\"browser_download_url\"".Length);
-                        if (urlStart >= 0)
+                        var urlStart = json.IndexOf("\"browser_download_url\"", searchIndex, StringComparison.OrdinalIgnoreCase);
+                        if (urlStart < 0)
                         {
-                            var urlEnd = json.IndexOf('"', urlStart + 1);
-                            if (urlEnd > urlStart)
-                            {
-                                info.DownloadUrl = json.Substring(urlStart + 1, urlEnd - urlStart - 1);
-                            }
+                            break;
                         }
+
+                        urlStart = json.IndexOf('"', urlStart + "\"browser_download_url\"".Length);
+                        if (urlStart < 0)
+                        {
+                            break;
+                        }
+
+                        var urlEnd = json.IndexOf('"', urlStart + 1);
+                        if (urlEnd <= urlStart)
+                        {
+                            break;
+                        }
+
+                        var candidateUrl = json.Substring(urlStart + 1, urlEnd - urlStart - 1);
+
+                        // 跳过 Git 源码归档链接（zipball_url 与 archive/refs 均为源码而非构建产物）
+                        if (candidateUrl.Contains("archive/refs", StringComparison.OrdinalIgnoreCase))
+                        {
+                            searchIndex = urlEnd;
+                            continue;
+                        }
+
+                        info.DownloadUrl = candidateUrl;
                     }
                 }
 

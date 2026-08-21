@@ -210,7 +210,10 @@ public class ChartSelect : MonoBehaviour
                 return;
             }
 
-            File.Copy(musicPath, Path.Combine(chartPath, "music.mp3"));
+            // 保留音乐源文件的原始扩展名，避免 wav/flac/ogg 等格式被误命名为 .mp3 导致无法识别
+            var musicExtension = Path.GetExtension(musicPath);
+            musicExtension = string.IsNullOrEmpty(musicExtension) ? ".mp3" : musicExtension.ToLowerInvariant();
+            File.Copy(musicPath, Path.Combine(chartPath, "music" + musicExtension));
             File.Copy(illustrationPath, Path.Combine(chartPath, "illustration.png"));
         }
         catch (Exception)

@@ -386,6 +386,12 @@ public class PlaybackModeController : MonoBehaviour
         m_chartPlayback?.Pause();
     }
 
+    /// <summary>当前是否正在播放（用于空格键播放/暂停切换判断）</summary>
+    public bool IsPlaying
+    {
+        get => m_isPlaying;
+    }
+
     /// <summary>
     /// 设置放映时是否保留网格等编辑层（true = Display 模式：放映时网格可见并自动滚动）。
     /// 正在放映中切换模式时，即时调整网格显隐与跟随状态。

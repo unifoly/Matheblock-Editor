@@ -1,6 +1,7 @@
 using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
+using HexMap;
 
 public class ButtonFuctionManager : MonoBehaviour
 {
@@ -8,12 +9,18 @@ public class ButtonFuctionManager : MonoBehaviour
     private const float k_minPlaybackSpeed = 0.05f;
     private const float k_maxPlaybackSpeed = 10f;
 
+    // 播放/暂停切换快捷键的 Action 名（与 Settings 页面中一致，用于 KeyBindingsStore 持久化）
+    private const string k_actionPlaybackToggle = "Playback_Toggle";
+
     private AudioSource m_music;
     private Slider m_slider;
     private GameObject m_pauseButton;
     private GameObject m_playButton;
     private PlaybackModeController m_playbackModeController;
     private TMP_InputField m_speedInput;
+
+    // 播放/暂停切换组合键（默认空格，可从 Settings 重绑）
+    private KeyCombo m_playbackToggleCombo;
 
     private void Start()
     {
@@ -43,6 +50,24 @@ public class ButtonFuctionManager : MonoBehaviour
             }
             ApplyPlaybackSpeedFromInput();
             m_speedInput.onEndEdit.AddListener(HandleSpeedInputEndEdit);
+        }
+
+        // 加载播放/暂停切换快捷键（默认空格，可重绑）
+        m_playbackToggleCombo = KeyBindingsStore.GetKeyCombo(k_actionPlaybackToggle, KeyCombo.Parse("Space"));
+    }
+
+    private void Update()
+    {
+        // 文本输入框获焦时跳过，避免与 TMP_InputField 的空格输入冲突
+        if (UndoRedoManager.IsTextInputFocused())
+        {
+            return;
+        }
+
+        // 空格键切换播放/暂停
+        if (m_playbackToggleCombo.IsValid && m_playbackToggleCombo.IsPressed())
+        {
+            TogglePlayPause();
         }
     }
 
@@ -136,5 +161,21 @@ public class ButtonFuctionManager : MonoBehaviour
 
         m_pauseButton.SetActive(false);
         m_playButton.SetActive(true);
+    }
+
+    /// <summary>
+    /// 切换播放/暂停状态（供空格快捷键调用）。
+    /// 播放中则暂停，未播放则从当前位置继续播放。
+    /// </summary>
+    public void TogglePlayPause()
+    {
+        if (m_playbackModeController != null && m_playbackModeController.IsPlaying)
+        {
+            Pause();
+        }
+        else
+        {
+            Play();
+        }
     }
 }

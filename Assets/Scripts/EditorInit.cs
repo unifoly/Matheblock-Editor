@@ -319,11 +319,67 @@ public class EditorInit : MonoBehaviour
         }
     }
 
+    /// <summary>
+    /// 支持的音频扩展名，与创建谱面时允许选择的音频格式保持一致
+    /// </summary>
+    private static readonly string[] k_musicExtensions = { ".wav", ".mp3", ".ogg", ".flac", ".aac" };
+
+    /// <summary>
+    /// 在谱面目录中查找音乐文件，兼容旧版固定命名 music.mp3
+    /// </summary>
+    private static string FindMusicFile(string dir)
+    {
+        if (string.IsNullOrEmpty(dir))
+        {
+            return null;
+        }
+
+        foreach (string ext in k_musicExtensions)
+        {
+            string path = Path.Combine(dir, "music" + ext);
+            if (File.Exists(path))
+            {
+                return path;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// 根据文件扩展名返回对应的 AudioType，确保以正确的编码格式解码音频
+    /// </summary>
+    private static AudioType GetAudioType(string filePath)
+    {
+        switch (Path.GetExtension(filePath).ToLowerInvariant())
+        {
+            case ".wav": return AudioType.WAV;
+            case ".mp3": return AudioType.MPEG;
+            case ".ogg": return AudioType.OGGVORBIS;
+            case ".aac": return AudioType.ACC;
+            // Unity 的 AudioType 枚举不包含 FLAC，交给 UNKNOWN 处理
+            default: return AudioType.UNKNOWN;
+        }
+    }
+
     private IEnumerator LoadAudioClip()
     {
-        var path = "file://" + Path.GetFullPath(Path.Combine(m_infoDir, "music.mp3"));
+        if (string.IsNullOrEmpty(m_infoDir))
+        {
+            yield break;
+        }
 
-        using (var www = UnityWebRequestMultimedia.GetAudioClip(path, AudioType.MPEG))
+        // 查找谱面目录下的音乐文件（可能是 wav/mp3/ogg/flac/aac 中的任意一种）
+        string musicFile = FindMusicFile(m_infoDir);
+        if (musicFile == null)
+        {
+            yield break;
+        }
+
+        var path = "file://" + Path.GetFullPath(musicFile);
+        var audioType = GetAudioType(musicFile);
+
+        using (var www = UnityWebRequestMultimedia.GetAudioClip(path, audioType))
         {
             yield return www.SendWebRequest();
 

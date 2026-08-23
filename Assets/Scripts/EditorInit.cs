@@ -13,7 +13,7 @@ public class EditorInit : MonoBehaviour
     public static string ChartPath;
 
     public AudioSource music;
-    
+
     private string m_infoDir;
     private TextMeshProUGUI m_txtDisplayer;
     private GameObject m_portalHandler;
@@ -22,6 +22,12 @@ public class EditorInit : MonoBehaviour
 
     // 自动保存计时
     private float m_autoSaveTimer;
+
+    // 手动保存快捷键的 Action 名（与 Settings 页面中一致，用于 KeyBindingsStore 持久化）
+    private const string k_actionSave = "Editor_Save";
+
+    // 手动保存组合键（默认 Ctrl+S，可从 Settings 重绑）
+    private KeyCombo m_saveCombo;
 
     private void Awake()
     {
@@ -55,6 +61,9 @@ public class EditorInit : MonoBehaviour
         // 初始化网格系统
         InitializeGridSystem();
         
+        // 加载手动保存快捷键（默认 Ctrl+S，可重绑）
+        m_saveCombo = KeyBindingsStore.GetKeyCombo(k_actionSave, KeyCombo.Parse("Ctrl + S"));
+
         // 异步加载音频
         StartCoroutine(LoadAudioClip());
     }
@@ -77,6 +86,9 @@ public class EditorInit : MonoBehaviour
         if (scene.name == "Setting")
         {
             UndoRedoManager.ReloadShortcuts();
+
+            // 重新加载保存快捷键（用户可能修改了绑定）
+            m_saveCombo = KeyBindingsStore.GetKeyCombo(k_actionSave, KeyCombo.Parse("Ctrl + S"));
         }
     }
 
@@ -84,6 +96,13 @@ public class EditorInit : MonoBehaviour
     {
         // 每帧轮询撤回/重做快捷键（Ctrl+Z / Ctrl+Y / Ctrl+Shift+Z）
         UndoRedoManager.ProcessKeyboardShortcuts();
+
+        // 手动保存快捷键（默认 Ctrl+S）。
+        // 不跳过文本输入框获焦场景：Ctrl+S 与文本编辑无冲突，输入时也应可保存
+        if (m_saveCombo.IsValid && m_saveCombo.IsPressed())
+        {
+            PersistToChartJson();
+        }
 
         // 自动保存：达到设置的间隔分钟数时持久化到 chart.json
         ProcessAutoSave();
@@ -219,6 +238,9 @@ public class EditorInit : MonoBehaviour
             if (File.Exists(tmpPath))
             {
                 File.Copy(tmpPath, jsonPath, overwrite: true);
+
+                // 无论通过何种方式保存（按钮 / Ctrl+S / 自动保存 / 退出），成功后均在右下角弹出提示
+                SaveToastNotifier.Show("保存成功");
             }
         }
         catch (Exception)

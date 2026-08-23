@@ -6,7 +6,7 @@ namespace HexMap
     public static class AppVersion
     {
         /// <summary>当前应用程序版本号</summary>
-        public const string CurrentVersion = "0.1.8a";
+        public const string CurrentVersion = "0.1.9a";
 
         /// <summary>应用程序名称，用于更新检查请求中的 User-Agent</summary>
         public const string AppName = "MatheblockEditor";

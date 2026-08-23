@@ -55,6 +55,7 @@ namespace HexMap
             HideAllPages();
             WireUpButtons();
             CreateEditorSettingsRows();
+            CreateSaveShortcutRow();
             BindPageControls();
         }
 
@@ -295,6 +296,91 @@ namespace HexMap
                 }
             }
         }
+
+        #region 保存快捷键重绑定行动态创建
+
+        // 保存快捷键的 Action 名与默认键（需与 EditorInit 中的常量保持一致）
+        private const string k_saveActionName = "Editor_Save";
+        private const string k_saveDefaultKey = "Ctrl + S";
+
+        /// <summary>
+        /// 在快捷键设置页（Page_ShortcutKey）动态创建"保存"重绑定行。
+        /// 通过克隆现有行（Row_Redo）并替换文本与绑定目标，确保样式与场景中的行完全一致，
+        /// 同时避免直接修改场景 YAML 的脆弱性。
+        /// </summary>
+        private void CreateSaveShortcutRow()
+        {
+            Transform content = FindShortcutSettingsContent();
+            if (content == null || content.Find("Row_Save") != null)
+            {
+                return;
+            }
+
+            // 以重做行为模板克隆（未找到时回退撤销行），保证样式完全对应
+            var template = content.Find("Row_Redo");
+            if (template == null)
+            {
+                template = content.Find("Row_Undo");
+            }
+
+            if (template == null)
+            {
+                return;
+            }
+
+            var clone = Instantiate(template.gameObject, content);
+            clone.name = "Row_Save";
+
+            // 替换左侧标签文本（如"重做" -> "保存"）
+            var labelText = clone.transform.Find("Label")?.GetComponent<TextMeshProUGUI>();
+            if (labelText != null)
+            {
+                labelText.text = "保存";
+            }
+
+            // 替换按键显示为保存快捷键的当前绑定，避免闪烁等待克隆行 Start 加载
+            var keyText = clone.transform.Find("KeyDisplay")?.GetComponentInChildren<TextMeshProUGUI>();
+            if (keyText != null)
+            {
+                keyText.text = KeyBindingsStore.GetBinding(k_saveActionName, k_saveDefaultKey);
+            }
+
+            // 重定向重绑定目标：克隆行的 RebindButton.KeyDisplay 引用在克隆时已自动重映射到自身
+            var rebind = clone.GetComponentInChildren<RebindButton>();
+            if (rebind != null)
+            {
+                rebind.ActionName = k_saveActionName;
+                rebind.DefaultKey = k_saveDefaultKey;
+            }
+
+            // 插入到模板行之后，与撤销/重做等编辑操作快捷键归为一组
+            clone.transform.SetSiblingIndex(template.GetSiblingIndex() + 1);
+        }
+
+        /// <summary>
+        /// 定位快捷键设置页（Page_ShortcutKey）的滚动内容容器
+        /// </summary>
+        private Transform FindShortcutSettingsContent()
+        {
+            for (int i = 0; i < m_menuEntries.Count; i++)
+            {
+                var pagePanel = m_menuEntries[i].pagePanel;
+                if (pagePanel == null || pagePanel.name != "Page_ShortcutKey")
+                {
+                    continue;
+                }
+
+                var layout = pagePanel.GetComponentInChildren<VerticalLayoutGroup>(true);
+                if (layout != null)
+                {
+                    return layout.transform;
+                }
+            }
+
+            return null;
+        }
+
+        #endregion
 
         #region 画质下拉动态创建
 

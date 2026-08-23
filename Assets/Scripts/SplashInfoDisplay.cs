@@ -32,6 +32,9 @@ namespace HexMap
         // 已加载的字符集，避免每次 TryAddCharacters 重复操作
         private bool m_fontInitialized;
 
+        // 最近一次更新错误信息，用于 Error 态展示具体原因
+        private string m_lastError;
+
         private void Start()
         {
             // 确保场景中存在 AutoUpdateManager，若不存在则自动创建
@@ -137,6 +140,8 @@ namespace HexMap
 
         private void HandleError(string error)
         {
+            // 记录具体错误信息（如"Gitee: timeout (HTTP 0)"），供 Error 态显示
+            m_lastError = error;
             UpdateDisplayText();
         }
 
@@ -185,7 +190,10 @@ namespace HexMap
                     break;
 
                 case AutoUpdateManager.UpdateState.Error:
-                    updateLine = "<color=#AA6666>更新失败</color>";
+                    // 有具体错误信息时直接展示，便于定位（如 403/404/超时）
+                    updateLine = string.IsNullOrEmpty(m_lastError)
+                        ? "<color=#AA6666>更新失败</color>"
+                        : $"<color=#AA6666>更新失败: {m_lastError}</color>";
                     break;
 
                 default:

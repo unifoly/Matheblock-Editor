@@ -161,7 +161,8 @@ namespace HexMap
 
                     if (request.result != UnityWebRequest.Result.Success)
                     {
-                        lastError = $"{source.Name}: {request.error}";
+                        // 记录 HTTP 状态码与响应体片段，便于定位 403/404/超时等真实原因
+                        lastError = $"{source.Name}: {request.error} (HTTP {request.responseCode})";
                         Debug.LogWarning($"[AutoUpdateManager] {lastError}", this);
                         continue; // 尝试下一个源
                     }
@@ -181,7 +182,8 @@ namespace HexMap
 
             if (releaseInfo == null || string.IsNullOrEmpty(releaseInfo.Version))
             {
-                State = UpdateState.Idle;
+                // 检查失败应进入 Error 态而非 Idle（Idle 会显示"就绪"，掩盖真实错误）
+                State = UpdateState.Error;
                 StatusTextChanged?.Invoke("更新检查失败");
                 UpdateErrorOccurred?.Invoke($"所有更新源均不可用: {lastError}");
                 yield break;
@@ -261,10 +263,11 @@ namespace HexMap
 
                 if (request.result != UnityWebRequest.Result.Success)
                 {
-                    State = UpdateState.Idle;
+                    // 下载失败同样进入 Error 态，避免 UI 回落显示"就绪"
+                    State = UpdateState.Error;
                     Progress = 0f;
                     StatusTextChanged?.Invoke("下载失败");
-                    UpdateErrorOccurred?.Invoke($"下载更新失败: {request.error}");
+                    UpdateErrorOccurred?.Invoke($"下载更新失败: {request.error} (HTTP {request.responseCode})");
                     yield break;
                 }
 

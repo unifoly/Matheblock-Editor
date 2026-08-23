@@ -5033,13 +5033,9 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 5aafe874236d9a646b78ff38e8822f78, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
-  m_primarySource: 0
-  m_fallbackToSecondary: 1
-  m_giteeApiUrl: https://gitee.com/api/v5/repos/unifoly/Matheblock-Editor/releases/latest
-  m_giteeAccessToken: 19816c803c3a5c285b7859058e6931f4
-  m_githubApiUrl: https://api.github.com/repos/unifoly/Matheblock-Editor/releases/latest
+  m_Name:
+  m_EditorClassIdentifier:
+  m_updateFeedUrl:
   m_downloadTimeout: 300
   m_checkOnStart: 1
 --- !u!114 &1819890183

@@ -7,8 +7,8 @@ using UnityEngine.Networking;
 namespace HexMap
 {
     /// <summary>
-    /// 自动更新管理器：在 Splash 场景启动时检查远程版本，
-    /// 若有新版本则下载 Release Assets（编译构建产物），全程通过事件通知 UI 层显示进度。
+    /// 自动更新管理器：在 Splash 场景启动时从更新源（腾讯云 COS）拉取 latest.json，
+    /// 若有新版本则下载 zip 构建包，全程通过事件通知 UI 层显示进度。
     /// 挂载到 Splash 场景中任意持久化 GameObject 上即可。
     /// </summary>
     public class AutoUpdateManager : MonoBehaviour
@@ -16,33 +16,10 @@ namespace HexMap
         // --- 更新源配置 ---
 
         [Header("更新源")]
-        [Tooltip("选择主更新源：Gitee（国内快）或 GitHub")]
-        [SerializeField] private UpdateSource m_primarySource = UpdateSource.Gitee;
-
-        [Tooltip("主源请求失败时，自动尝试备选源")]
-        [SerializeField] private bool m_fallbackToSecondary = true;
-
-        [Header("Gitee（国内推荐）")]
-        [Tooltip("Gitee Releases API 地址\n" +
-                 "格式: https://gitee.com/api/v5/repos/{用户名}/{仓库名}/releases/latest\n" +
-                 "示例: https://gitee.com/api/v5/repos/yourname/Matheblock-Editor/releases/latest")]
-        [SerializeField] private string m_giteeApiUrl = string.Empty;
-
-        [Tooltip("Gitee 私人令牌（私有仓库必须填写，公开仓库可留空）\n" +
-                 "申请地址: https://gitee.com/profile/personal_access_tokens\n" +
-                 "注意: 令牌会随构建产物分发，请使用只读权限的令牌并定期更换")]
-        [SerializeField] private string m_giteeAccessToken = string.Empty;
-
-        [Header("GitHub（备选）")]
-        [Tooltip("GitHub Releases API 地址\n" +
-                 "格式: https://api.github.com/repos/{用户名}/{仓库名}/releases/latest\n" +
-                 "示例: https://api.github.com/repos/yourname/Matheblock-Editor/releases/latest")]
-        [SerializeField] private string m_githubApiUrl = string.Empty;
-
-        [Tooltip("GitHub Personal Access Token（私有仓库必填，公开仓库可留空）\n" +
-                 "申请地址: https://github.com/settings/tokens\n" +
-                 "注意: 令牌会随构建产物分发，请使用只读权限的令牌并定期更换")]
-        [SerializeField] private string m_githubToken = string.Empty;
+        [Tooltip("latest.json 的完整 URL\n" +
+                 "腾讯云 COS 示例: https://mbe-update-125xxxxxx.cos.ap-shanghai.myqcloud.com/latest.json\n" +
+                 "JSON 格式: { \"version\": \"0.1.10a\", \"url\": \"zip下载直链\", \"notes\": \"更新说明\" }")]
+        [SerializeField] private string m_updateFeedUrl = string.Empty;
 
         [Header("通用配置")]
         [Tooltip("下载超时时间（秒）")]
@@ -126,90 +103,68 @@ namespace HexMap
         }
 
         /// <summary>
-        /// 检查远程版本信息的协程
-        /// 优先使用主源，失败时（若开启回退）尝试备选源
+        /// 拉取 latest.json 并比较版本的协程
         /// </summary>
         private IEnumerator CheckForUpdateCo()
         {
-            State = UpdateState.Checking;
-            StatusTextChanged?.Invoke("正在检查更新…");
-
-            // 构建尝试顺序：主源 -> 备选源
-            var sources = BuildSourceList();
-            if (sources.Count == 0)
+            if (string.IsNullOrEmpty(m_updateFeedUrl))
             {
                 State = UpdateState.Error;
                 StatusTextChanged?.Invoke("未配置更新源");
-                UpdateErrorOccurred?.Invoke("请在 Inspector 中填写 Gitee 或 GitHub API 地址");
+                UpdateErrorOccurred?.Invoke("请在 Inspector 中填写 latest.json 的 URL");
                 yield break;
             }
 
-            ReleaseInfo releaseInfo = null;
-            string lastError = null;
+            State = UpdateState.Checking;
+            StatusTextChanged?.Invoke("正在检查更新…");
 
-            foreach (var source in sources)
+            using (var request = UnityWebRequest.Get(m_updateFeedUrl))
             {
-                StatusTextChanged?.Invoke($"正在检查更新（{source.Name}）…");
+                request.SetRequestHeader("User-Agent", $"{AppVersion.AppName}/{AppVersion.CurrentVersion}");
+                request.timeout = 15;
 
-                using (var request = UnityWebRequest.Get(source.Url))
+                yield return request.SendWebRequest();
+
+                if (request.result != UnityWebRequest.Result.Success)
                 {
-                    request.SetRequestHeader("User-Agent", $"{AppVersion.AppName}/{AppVersion.CurrentVersion}");
-                    ApplyAuthorization(request, source.Url);
-                    request.timeout = 15;
-
-                    yield return request.SendWebRequest();
-
-                    if (request.result != UnityWebRequest.Result.Success)
-                    {
-                        // 记录 HTTP 状态码与响应体片段，便于定位 403/404/超时等真实原因
-                        lastError = $"{source.Name}: {request.error} (HTTP {request.responseCode})";
-                        Debug.LogWarning($"[AutoUpdateManager] {lastError}", this);
-                        continue; // 尝试下一个源
-                    }
-
-                    // Gitee 和 GitHub 的 Releases API 返回格式一致
-                    releaseInfo = ParseReleaseJson(request.downloadHandler.text);
-                    if (releaseInfo == null || string.IsNullOrEmpty(releaseInfo.Version))
-                    {
-                        lastError = $"{source.Name}: 版本信息解析失败";
-                        continue;
-                    }
-
-                    // 成功获取版本信息
-                    break;
-                }
-            }
-
-            if (releaseInfo == null || string.IsNullOrEmpty(releaseInfo.Version))
-            {
-                // 检查失败应进入 Error 态而非 Idle（Idle 会显示"就绪"，掩盖真实错误）
-                State = UpdateState.Error;
-                StatusTextChanged?.Invoke("更新检查失败");
-                UpdateErrorOccurred?.Invoke($"所有更新源均不可用: {lastError}");
-                yield break;
-            }
-
-            LatestVersion = releaseInfo.Version;
-            bool hasUpdate = IsNewerVersion(releaseInfo.Version, AppVersion.CurrentVersion);
-
-            State = hasUpdate ? UpdateState.UpdateAvailable : UpdateState.UpToDate;
-            StatusTextChanged?.Invoke(hasUpdate ? "发现新版本" : "已是最新版本");
-
-            UpdateCheckCompleted?.Invoke(hasUpdate, releaseInfo.Version, AppVersion.CurrentVersion);
-
-            // 若有新版本且有构建产物可下载，自动开始下载
-            if (hasUpdate)
-            {
-                if (string.IsNullOrEmpty(releaseInfo.DownloadUrl))
-                {
-                    // Release 存在但未上传构建产物
+                    // 记录 HTTP 状态码，便于定位 403/404/超时等真实原因
                     State = UpdateState.Error;
-                    StatusTextChanged?.Invoke($"发现新版本 v{releaseInfo.Version}，但暂无可下载的构建产物");
-                    UpdateErrorOccurred?.Invoke("该版本未上传构建产物（Release Assets），无法自动下载");
+                    StatusTextChanged?.Invoke("更新检查失败");
+                    UpdateErrorOccurred?.Invoke($"获取版本信息失败: {request.error} (HTTP {request.responseCode})");
+                    yield break;
                 }
-                else
+
+                var releaseInfo = ParseFeedJson(request.downloadHandler.text);
+                if (releaseInfo == null || string.IsNullOrEmpty(releaseInfo.Version))
                 {
-                    yield return StartCoroutine(DownloadUpdateCo(releaseInfo));
+                    State = UpdateState.Error;
+                    StatusTextChanged?.Invoke("更新检查失败");
+                    UpdateErrorOccurred?.Invoke("latest.json 解析失败（需要 version 与 url 字段）");
+                    yield break;
+                }
+
+                LatestVersion = releaseInfo.Version;
+                bool hasUpdate = IsNewerVersion(releaseInfo.Version, AppVersion.CurrentVersion);
+
+                State = hasUpdate ? UpdateState.UpdateAvailable : UpdateState.UpToDate;
+                StatusTextChanged?.Invoke(hasUpdate ? "发现新版本" : "已是最新版本");
+
+                UpdateCheckCompleted?.Invoke(hasUpdate, releaseInfo.Version, AppVersion.CurrentVersion);
+
+                // 若有新版本且有构建包可下载，自动开始下载
+                if (hasUpdate)
+                {
+                    if (string.IsNullOrEmpty(releaseInfo.DownloadUrl))
+                    {
+                        // latest.json 缺少 url 字段
+                        State = UpdateState.Error;
+                        StatusTextChanged?.Invoke($"发现新版本 v{releaseInfo.Version}，但缺少下载地址");
+                        UpdateErrorOccurred?.Invoke("latest.json 中未提供 url（zip 下载直链）");
+                    }
+                    else
+                    {
+                        yield return StartCoroutine(DownloadUpdateCo(releaseInfo));
+                    }
                 }
             }
         }
@@ -241,7 +196,6 @@ namespace HexMap
             using (var request = UnityWebRequest.Get(releaseInfo.DownloadUrl))
             {
                 request.SetRequestHeader("User-Agent", $"{AppVersion.AppName}/{AppVersion.CurrentVersion}");
-                ApplyAuthorization(request, releaseInfo.DownloadUrl);
                 request.timeout = (int)m_downloadTimeout;
 
                 var downloadHandler = new DownloadHandlerFile(savePath);
@@ -263,7 +217,7 @@ namespace HexMap
 
                 if (request.result != UnityWebRequest.Result.Success)
                 {
-                    // 下载失败同样进入 Error 态，避免 UI 回落显示"就绪"
+                    // 下载失败进入 Error 态，避免 UI 回落显示"就绪"
                     State = UpdateState.Error;
                     Progress = 0f;
                     StatusTextChanged?.Invoke("下载失败");
@@ -281,122 +235,21 @@ namespace HexMap
         }
 
         /// <summary>
-        /// 为私有仓库请求附加认证头。
-        /// Gitee: Authorization: token {私人令牌}（附件下载仅支持请求头，URL 参数会 403）
-        /// GitHub: Authorization: Bearer {PAT}（私有仓库 API 与附件下载均需认证）
+        /// 解析 latest.json（自定义格式）
+        /// { "version": "0.1.10a", "url": "https://.../MBE.v0.1.10a.zip", "notes": "..." }
         /// </summary>
-        private void ApplyAuthorization(UnityWebRequest request, string url)
-        {
-            if (string.IsNullOrEmpty(url))
-            {
-                return;
-            }
-
-            if (url.Contains("gitee.com", StringComparison.OrdinalIgnoreCase) &&
-                !string.IsNullOrEmpty(m_giteeAccessToken))
-            {
-                request.SetRequestHeader("Authorization", $"token {m_giteeAccessToken}");
-            }
-            else if (url.Contains("github.com", StringComparison.OrdinalIgnoreCase) ||
-                     url.Contains("githubusercontent.com", StringComparison.OrdinalIgnoreCase))
-            {
-                if (!string.IsNullOrEmpty(m_githubToken))
-                {
-                    request.SetRequestHeader("Authorization", $"Bearer {m_githubToken}");
-                }
-            }
-        }
-
-        /// <summary>
-        /// 根据主源和回退设置，构建要尝试的更新源列表
-        /// </summary>
-        private System.Collections.Generic.List<UpdateSourceEntry> BuildSourceList()
-        {
-            var list = new System.Collections.Generic.List<UpdateSourceEntry>(2);
-
-            // 主源
-            var primaryUrl = m_primarySource == UpdateSource.Gitee ? m_giteeApiUrl : m_githubApiUrl;
-            if (!string.IsNullOrEmpty(primaryUrl))
-            {
-                list.Add(new UpdateSourceEntry(m_primarySource.ToString(), primaryUrl));
-            }
-
-            // 备选源
-            if (m_fallbackToSecondary)
-            {
-                var secondarySource = m_primarySource == UpdateSource.Gitee ? UpdateSource.GitHub : UpdateSource.Gitee;
-                var secondaryUrl = secondarySource == UpdateSource.Gitee ? m_giteeApiUrl : m_githubApiUrl;
-                if (!string.IsNullOrEmpty(secondaryUrl))
-                {
-                    list.Add(new UpdateSourceEntry(secondarySource.ToString(), secondaryUrl));
-                }
-            }
-
-            return list;
-        }
-
-        /// <summary>
-        /// 解析 Releases API 返回的 JSON（Gitee 和 GitHub 格式一致）
-        /// 提取 tag_name（版本号）和 assets 中的 browser_download_url（构建产物下载链接）
-        /// </summary>
-        private ReleaseInfo ParseReleaseJson(string json)
+        private ReleaseInfo ParseFeedJson(string json)
         {
             try
             {
-                var info = new ReleaseInfo();
-
-                // 提取 tag_name（版本号）
-                info.Version = ExtractJsonValue(json, "tag_name");
-
-                // 提取 body（发布说明）
-                info.ReleaseNotes = ExtractJsonValue(json, "body");
-
-                // 提取 Release Assets 中的编译构建产物（browser_download_url）
-                // 注意：跳过源码归档（Gitee 会附带 archive/refs/... 链接），仅取真实上传的构建产物
-                var assetsIndex = json.IndexOf("\"assets\"", StringComparison.OrdinalIgnoreCase);
-                if (assetsIndex >= 0)
+                var info = new ReleaseInfo
                 {
-                    var searchIndex = assetsIndex;
-                    while (info.DownloadUrl == null)
-                    {
-                        var urlStart = json.IndexOf("\"browser_download_url\"", searchIndex, StringComparison.OrdinalIgnoreCase);
-                        if (urlStart < 0)
-                        {
-                            break;
-                        }
+                    Version = ExtractJsonValue(json, "version"),
+                    DownloadUrl = ExtractJsonValue(json, "url"),
+                    ReleaseNotes = ExtractJsonValue(json, "notes")
+                };
 
-                        urlStart = json.IndexOf('"', urlStart + "\"browser_download_url\"".Length);
-                        if (urlStart < 0)
-                        {
-                            break;
-                        }
-
-                        var urlEnd = json.IndexOf('"', urlStart + 1);
-                        if (urlEnd <= urlStart)
-                        {
-                            break;
-                        }
-
-                        var candidateUrl = json.Substring(urlStart + 1, urlEnd - urlStart - 1);
-
-                        // 跳过 Git 源码归档链接（zipball_url 与 archive/refs 均为源码而非构建产物）
-                        if (candidateUrl.Contains("archive/refs", StringComparison.OrdinalIgnoreCase))
-                        {
-                            searchIndex = urlEnd;
-                            continue;
-                        }
-
-                        info.DownloadUrl = candidateUrl;
-                    }
-                }
-
-                // 清理版本号前缀（如 v0.2.0 -> 0.2.0）
-                if (!string.IsNullOrEmpty(info.Version) && info.Version.StartsWith("v"))
-                {
-                    info.Version = info.Version.Substring(1);
-                }
-
-                return info;
+                return string.IsNullOrEmpty(info.Version) ? null : info;
             }
             catch (Exception)
             {
@@ -519,13 +372,6 @@ namespace HexMap
 
         // --- 数据模型 ---
 
-        /// <summary>更新源类型</summary>
-        public enum UpdateSource
-        {
-            Gitee,
-            GitHub
-        }
-
         /// <summary>更新状态枚举</summary>
         public enum UpdateState
         {
@@ -536,19 +382,6 @@ namespace HexMap
             Downloading,
             DownloadComplete,
             Error
-        }
-
-        /// <summary>更新源条目（内部使用）</summary>
-        private readonly struct UpdateSourceEntry
-        {
-            public readonly string Name;
-            public readonly string Url;
-
-            public UpdateSourceEntry(string name, string url)
-            {
-                Name = name;
-                Url = url;
-            }
         }
 
         /// <summary>远程发布信息</summary>
